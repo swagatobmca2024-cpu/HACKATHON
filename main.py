@@ -24,13 +24,13 @@ background:white;
 padding:18px;
 border-radius:14px;
 text-align:center;
-box-shadow:0 4px 10px rgba(0,0,0,0.15);
+box-shadow:0 4px 10px rgba(0,0,0,0.1);
 }
 
 .metric-value{
 font-size:32px;
 font-weight:700;
-color:#111827;
+color:#1f2937;
 }
 
 .metric-label{
@@ -69,11 +69,8 @@ if file:
     # FEATURE ENGINEERING
     # -------------------------------------------------
     df["Clean_Customer_Name"] = (
-        df["Customer_Name"]
-        .astype(str)
-        .str.strip()
-        .str.replace(r"\s+"," ",regex=True)
-        .str.title()
+        df["Customer_Name"].astype(str)
+        .str.strip().str.replace(r"\s+"," ",regex=True).str.title()
     )
 
     df["Total_Amount"] = df["Quantity"] * df["Unit_Price"]
@@ -81,8 +78,8 @@ if file:
     df["Final_Sales_Amount"] = df["Total_Amount"] - df["Discount_Amount"]
 
     df["Order_Value_Category"] = np.where(
-        df["Final_Sales_Amount"] >= 30000,"High Value",
-        np.where(df["Final_Sales_Amount"] >= 10000,"Medium Value","Low Value")
+        df["Final_Sales_Amount"]>=30000,"High Value",
+        np.where(df["Final_Sales_Amount"]>=10000,"Medium Value","Low Value")
     )
 
     df["Delivery_Status"] = np.where(
@@ -98,20 +95,17 @@ if file:
     df["Month"] = df["Order_Date"].dt.to_period("M").astype(str)
 
     # -------------------------------------------------
-    # SIDEBAR FILTERS
+    # FILTERS
     # -------------------------------------------------
     st.sidebar.header("🔎 Filters")
 
     city = st.sidebar.multiselect("City", df["City"].unique())
     category = st.sidebar.multiselect("Category", df["Product_Category"].unique())
-    payment = st.sidebar.multiselect("Payment Mode", df["Payment_Mode"].unique())
 
     if city:
         df = df[df["City"].isin(city)]
     if category:
         df = df[df["Product_Category"].isin(category)]
-    if payment:
-        df = df[df["Payment_Mode"].isin(payment)]
 
     # -------------------------------------------------
     # KPIs
@@ -119,7 +113,8 @@ if file:
     total_sales = df["Final_Sales_Amount"].sum()
     total_orders = len(df)
     total_items = df["Quantity"].sum()
-    avg_order = total_sales / total_orders if total_orders else 0
+    avg_order = df["Final_Sales_Amount"].mean()
+    discount_given = df["Discount_Amount"].sum()
     customers = df["Clean_Customer_Name"].nunique()
     fast_pct = (df["Fast_Delivery_Flag"]=="Fast Delivery").mean()*100
 
@@ -130,40 +125,30 @@ if file:
     k1.markdown(f"<div class='metric-card'><div class='metric-value'>₹{total_sales:,.0f}</div><div class='metric-label'>Total Sales</div></div>", unsafe_allow_html=True)
     k2.markdown(f"<div class='metric-card'><div class='metric-value'>{total_orders}</div><div class='metric-label'>Orders</div></div>", unsafe_allow_html=True)
     k3.markdown(f"<div class='metric-card'><div class='metric-value'>{total_items}</div><div class='metric-label'>Items Sold</div></div>", unsafe_allow_html=True)
-    k4.markdown(f"<div class='metric-card'><div class='metric-value'>₹{avg_order:,.0f}</div><div class='metric-label'>Avg Order Value</div></div>", unsafe_allow_html=True)
-    k5.markdown(f"<div class='metric-card'><div class='metric-value'>{customers}</div><div class='metric-label'>Customers</div></div>", unsafe_allow_html=True)
-    k6.markdown(f"<div class='metric-card'><div class='metric-value'>{fast_pct:.1f}%</div><div class='metric-label'>Fast Delivery %</div></div>", unsafe_allow_html=True)
+    k4.markdown(f"<div class='metric-card'><div class='metric-value'>₹{avg_order:,.0f}</div><div class='metric-label'>Avg Order</div></div>", unsafe_allow_html=True)
+    k5.markdown(f"<div class='metric-card'><div class='metric-value'>₹{discount_given:,.0f}</div><div class='metric-label'>Discount Given</div></div>", unsafe_allow_html=True)
+    k6.markdown(f"<div class='metric-card'><div class='metric-value'>{customers}</div><div class='metric-label'>Customers</div></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------
     # TABS
     # -------------------------------------------------
-    tab1,tab2,tab3,tab4,tab5,tab6 = st.tabs(
-        ["📊 Overview","📈 Trends","🏆 Products","👥 Customers",
-         "💳 Payments","🚚 Delivery"]
+    tab1,tab2,tab3,tab4,tab5 = st.tabs(
+        ["📊 Overview","📈 Trends","🏆 Products","👥 Customers","🚚 Delivery"]
     )
 
     # ---------------- OVERVIEW ----------------
     with tab1:
-
         col1,col2 = st.columns(2)
 
         ovc = df["Order_Value_Category"].value_counts().reset_index()
-        ovc.columns=["Category","Orders"]
-
-        fig1 = px.bar(
-            ovc,x="Category",y="Orders",
-            text="Orders",
-            title="Orders by Value Category"
-        )
+        ovc.columns=["Category","Count"]
+        fig1 = px.bar(ovc,x="Category",y="Count",
+                      text="Count",title="Orders by Value Category")
         col1.plotly_chart(fig1,use_container_width=True)
 
-        city_orders = df.groupby("City").size().reset_index(name="Orders")
-
-        fig2 = px.bar(
-            city_orders,x="City",y="Orders",
-            title="Orders by City",
-            text="Orders"
-        )
+        city_sales = df.groupby("City")["Final_Sales_Amount"].sum().reset_index()
+        fig2 = px.bar(city_sales,x="City",y="Final_Sales_Amount",
+                      title="Sales by City")
         col2.plotly_chart(fig2,use_container_width=True)
 
         heat = df.pivot_table(
@@ -177,104 +162,55 @@ if file:
         fig_heat = px.imshow(
             heat,
             text_auto=True,
-            color_continuous_scale="Turbo",
             aspect="auto",
+            color_continuous_scale="Turbo",
             title="City vs Category Sales Heatmap"
         )
-        fig_heat.update_layout(height=650)
+
+        fig_heat.update_layout(height=550)
 
         st.plotly_chart(fig_heat,use_container_width=True)
 
     # ---------------- TRENDS ----------------
     with tab2:
         monthly = df.groupby("Month")["Final_Sales_Amount"].sum().reset_index()
-
-        fig3 = px.line(
-            monthly,x="Month",y="Final_Sales_Amount",
-            markers=True,title="Monthly Revenue Trend"
-        )
+        fig3 = px.line(monthly,x="Month",y="Final_Sales_Amount",
+                       markers=True,title="Monthly Revenue Trend")
         st.plotly_chart(fig3,use_container_width=True)
 
     # ---------------- PRODUCTS ----------------
     with tab3:
-        prod = (
-            df.groupby("Product_Name")["Final_Sales_Amount"]
-            .sum().reset_index()
-            .sort_values(by="Final_Sales_Amount",ascending=False)
-            .head(10)
-        )
+        prod = df.groupby("Product_Name")["Final_Sales_Amount"].sum().reset_index()
+        prod = prod.sort_values(by="Final_Sales_Amount",ascending=False).head(10)
 
-        fig4 = px.bar(
-            prod,x="Final_Sales_Amount",y="Product_Name",
-            orientation="h",
-            title="Top Products by Sales"
-        )
+        fig4 = px.bar(prod,x="Final_Sales_Amount",y="Product_Name",
+                      orientation="h",title="Top Products")
         st.plotly_chart(fig4,use_container_width=True)
 
     # ---------------- CUSTOMERS ----------------
     with tab4:
-        cust = (
-            df.groupby("Clean_Customer_Name")
-            .agg(
-                Orders=("Product_Name","count"),
-                Sales=("Final_Sales_Amount","sum")
-            )
-            .reset_index()
-            .sort_values(by="Sales",ascending=False)
-            .head(15)
-        )
+        cust = df.groupby("Clean_Customer_Name")["Final_Sales_Amount"].sum().reset_index()
+        cust = cust.sort_values(by="Final_Sales_Amount",ascending=False).head(10)
 
-        fig5 = px.bar(
-            cust,x="Sales",y="Clean_Customer_Name",
-            orientation="h",
-            text="Orders",
-            title="Top Customers (Sales + Orders)"
-        )
+        fig5 = px.bar(cust,x="Final_Sales_Amount",
+                      y="Clean_Customer_Name",
+                      orientation="h",
+                      title="Top Customers")
         st.plotly_chart(fig5,use_container_width=True)
 
-    # ---------------- PAYMENTS ----------------
+    # ---------------- DELIVERY ----------------
     with tab5:
-        pay = df["Payment_Mode"].value_counts().reset_index()
-        pay.columns=["Payment_Mode","Orders"]
-
-        fig6 = px.pie(
-            pay,names="Payment_Mode",
-            values="Orders",
-            title="Orders by Payment Mode"
-        )
+        fast = df["Fast_Delivery_Flag"].value_counts().reset_index()
+        fast.columns=["Type","Count"]
+        fig6 = px.pie(fast,names="Type",values="Count",
+                      title="Delivery Speed")
         st.plotly_chart(fig6)
 
-        channel = df["Sales_Channel"].value_counts().reset_index()
-        channel.columns=["Sales_Channel","Orders"]
-
-        fig7 = px.bar(
-            channel,x="Sales_Channel",y="Orders",
-            text="Orders",
-            title="Orders by Sales Channel"
-        )
-        st.plotly_chart(fig7,use_container_width=True)
-
-    # ---------------- DELIVERY ----------------
-    with tab6:
-        fast = df["Fast_Delivery_Flag"].value_counts().reset_index()
-        fast.columns=["Type","Orders"]
-
-        fig8 = px.pie(
-            fast,names="Type",
-            values="Orders",
-            title="Delivery Speed"
-        )
-        st.plotly_chart(fig8)
-
         delv = df["Delivery_Status"].value_counts().reset_index()
-        delv.columns=["Status","Orders"]
-
-        fig9 = px.bar(
-            delv,x="Status",y="Orders",
-            text="Orders",
-            title="Delivery Status"
-        )
-        st.plotly_chart(fig9,use_container_width=True)
+        delv.columns=["Status","Count"]
+        fig7 = px.bar(delv,x="Status",y="Count",
+                      title="Delivery Status")
+        st.plotly_chart(fig7)
 
 else:
     st.info("Upload an Excel file to begin")

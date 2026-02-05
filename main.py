@@ -946,7 +946,15 @@ if file:
             col1, col2 = st.columns(2)
 
             with col1:
-                discount_impact = df.groupby(pd.cut(df["Discount_Percent"], bins=[0, 5, 10, 15, 20, 100], labels=["0-5%", "5-10%", "10-15%", "15-20%", "20%+"], include_lowest=True)).agg({
+                df_temp = df.copy()
+                df_temp["Discount_Range"] = pd.cut(
+                    df_temp["Discount_Percent"],
+                    bins=[0, 5, 10, 15, 20, 100],
+                    labels=["0-5%", "5-10%", "10-15%", "15-20%", "20%+"],
+                    include_lowest=True
+                )
+
+                discount_impact = df_temp.groupby("Discount_Range", observed=True).agg({
                     "Final_Sales_Amount": "sum",
                     "Order_Date": "count"
                 }).reset_index()
@@ -955,7 +963,7 @@ if file:
                 fig_discount = go.Figure()
 
                 fig_discount.add_trace(go.Bar(
-                    x=discount_impact["Discount Range"],
+                    x=discount_impact["Discount Range"].astype(str),
                     y=discount_impact["Sales"],
                     name="Sales",
                     marker_color='#3b82f6',
@@ -964,7 +972,7 @@ if file:
                 ))
 
                 fig_discount.add_trace(go.Scatter(
-                    x=discount_impact["Discount Range"],
+                    x=discount_impact["Discount Range"].astype(str),
                     y=discount_impact["Orders"],
                     name="Orders",
                     mode='lines+markers',

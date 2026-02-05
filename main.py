@@ -941,246 +941,219 @@ if file:
             )
 
         with tab6:
-            try:
-                st.markdown("<div class='section-title'>Advanced Analytics & Insights</div>", unsafe_allow_html=True)
+            st.markdown("<div class='section-title'>Advanced Analytics & Insights</div>", unsafe_allow_html=True)
 
-                col1, col2 = st.columns(2)
+            col1, col2 = st.columns(2)
 
-                with col1:
-                    discount_data_clean = df[df["Discount_Percent"].notna()].copy()
+            with col1:
+                discount_impact = df.groupby(pd.cut(df["Discount_Percent"], bins=[0, 5, 10, 15, 20, 100], labels=["0-5%", "5-10%", "10-15%", "15-20%", "20%+"], include_lowest=True)).agg({
+                    "Final_Sales_Amount": "sum",
+                    "Order_Date": "count"
+                }).reset_index()
+                discount_impact.columns = ["Discount Range", "Sales", "Orders"]
 
-                    if len(discount_data_clean) > 0:
-                        max_discount = discount_data_clean["Discount_Percent"].max()
+                fig_discount = go.Figure()
 
-                        if max_discount <= 20:
-                            bins = [0, 5, 10, 15, max_discount + 0.01]
-                            labels = ["0-5%", "5-10%", "10-15%", f"15-{max_discount:.0f}%"]
-                        else:
-                            bins = [0, 5, 10, 15, 20, max_discount + 0.01]
-                            labels = ["0-5%", "5-10%", "10-15%", "15-20%", f"20-{max_discount:.0f}%"]
-
-                        discount_data_clean["Discount_Range"] = pd.cut(
-                            discount_data_clean["Discount_Percent"],
-                            bins=bins,
-                            labels=labels,
-                            include_lowest=True,
-                            duplicates='drop'
-                        )
-
-                        discount_impact = discount_data_clean.groupby("Discount_Range", observed=True).agg({
-                            "Final_Sales_Amount": "sum",
-                            "Order_Date": "count"
-                        }).reset_index()
-                        discount_impact.columns = ["Discount Range", "Sales", "Orders"]
-
-                        fig_discount = go.Figure()
-
-                        fig_discount.add_trace(go.Bar(
-                            x=discount_impact["Discount Range"],
-                            y=discount_impact["Sales"],
-                            name="Sales",
-                            marker_color='#3b82f6',
-                            yaxis='y',
-                            hovertemplate='Range: %{x}<br>Sales: ₹%{y:,.0f}<extra></extra>'
-                        ))
-
-                        fig_discount.add_trace(go.Scatter(
-                            x=discount_impact["Discount Range"],
-                            y=discount_impact["Orders"],
-                            name="Orders",
-                            mode='lines+markers',
-                            marker_color='#ef4444',
-                            yaxis='y2',
-                            hovertemplate='Range: %{x}<br>Orders: %{y}<extra></extra>'
-                        ))
-
-                        fig_discount.update_layout(
-                            title="Discount Impact Analysis",
-                            xaxis_title="Discount Range (%)",
-                            yaxis=dict(title="Sales (₹)", side='left'),
-                            yaxis2=dict(title="Orders", overlaying='y', side='right'),
-                            height=400,
-                            template="plotly_white",
-                            hovermode='x unified'
-                        )
-
-                        st.plotly_chart(fig_discount, use_container_width=True)
-                    else:
-                        st.info("No discount data available for analysis")
-
-                with col2:
-                    basket_size = df.groupby("Order_Date").agg({
-                        "Quantity": "sum"
-                    }).reset_index()
-                    basket_size = basket_size.groupby("Quantity").size().reset_index()
-                    basket_size.columns = ["Items per Order", "Frequency"]
-                    basket_size = basket_size[basket_size["Items per Order"] <= 20]
-
-                    fig_basket = go.Figure(data=[go.Bar(
-                        x=basket_size["Items per Order"],
-                        y=basket_size["Frequency"],
-                        marker=dict(
-                            color=basket_size["Frequency"],
-                            colorscale='Mint',
-                            showscale=False
-                        ),
-                        hovertemplate='Items: %{x}<br>Frequency: %{y}<extra></extra>'
-                    )])
-
-                    fig_basket.update_layout(
-                        title="Basket Size Distribution",
-                        xaxis_title="Items per Order",
-                        yaxis_title="Frequency",
-                        height=400,
-                        template="plotly_white"
-                    )
-
-                    st.plotly_chart(fig_basket, use_container_width=True)
-
-                sales_funnel = pd.DataFrame({
-                    "Stage": ["Total Orders", "Delivered", "High Value", "Repeat Customers"],
-                    "Count": [
-                        total_orders,
-                        (df["Order_Status"] == "Delivered").sum(),
-                        (df["Order_Value_Category"] == "High Value").sum(),
-                        len(df[df.groupby("Clean_Customer_Name")["Order_Date"].transform("count") > 1])
-                    ]
-                })
-
-                fig_funnel = go.Figure(go.Funnel(
-                    y=sales_funnel["Stage"],
-                    x=sales_funnel["Count"],
-                    textposition="inside",
-                    textinfo="value+percent initial",
-                    marker=dict(color=["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6"]),
-                    hovertemplate='<b>%{y}</b><br>Count: %{x}<br>%{percentInitial}<extra></extra>'
+                fig_discount.add_trace(go.Bar(
+                    x=discount_impact["Discount Range"],
+                    y=discount_impact["Sales"],
+                    name="Sales",
+                    marker_color='#3b82f6',
+                    yaxis='y',
+                    hovertemplate='Range: %{x}<br>Sales: ₹%{y:,.0f}<extra></extra>'
                 ))
 
-                fig_funnel.update_layout(
-                    title="Sales Funnel Analysis",
-                    height=500,
+                fig_discount.add_trace(go.Scatter(
+                    x=discount_impact["Discount Range"],
+                    y=discount_impact["Orders"],
+                    name="Orders",
+                    mode='lines+markers',
+                    marker_color='#ef4444',
+                    yaxis='y2',
+                    hovertemplate='Range: %{x}<br>Orders: %{y}<extra></extra>'
+                ))
+
+                fig_discount.update_layout(
+                    title="Discount Impact Analysis",
+                    xaxis_title="Discount Range (%)",
+                    yaxis=dict(title="Sales (₹)", side='left'),
+                    yaxis2=dict(title="Orders", overlaying='y', side='right'),
+                    height=400,
+                    template="plotly_white",
+                    hovermode='x unified'
+                )
+
+                st.plotly_chart(fig_discount, use_container_width=True)
+
+            with col2:
+                basket_size = df.groupby("Order_Date").agg({
+                    "Quantity": "sum"
+                }).reset_index()
+                basket_size = basket_size.groupby("Quantity").size().reset_index()
+                basket_size.columns = ["Items per Order", "Frequency"]
+                basket_size = basket_size[basket_size["Items per Order"] <= 20]
+
+                fig_basket = go.Figure(data=[go.Bar(
+                    x=basket_size["Items per Order"],
+                    y=basket_size["Frequency"],
+                    marker=dict(
+                        color=basket_size["Frequency"],
+                        colorscale='Mint',
+                        showscale=False
+                    ),
+                    hovertemplate='Items: %{x}<br>Frequency: %{y}<extra></extra>'
+                )])
+
+                fig_basket.update_layout(
+                    title="Basket Size Distribution",
+                    xaxis_title="Items per Order",
+                    yaxis_title="Frequency",
+                    height=400,
                     template="plotly_white"
                 )
 
-                st.plotly_chart(fig_funnel, use_container_width=True)
+                st.plotly_chart(fig_basket, use_container_width=True)
 
-                col3, col4 = st.columns(2)
+            sales_funnel = pd.DataFrame({
+                "Stage": ["Total Orders", "Delivered", "High Value", "Repeat Customers"],
+                "Count": [
+                    total_orders,
+                    (df["Order_Status"] == "Delivered").sum(),
+                    (df["Order_Value_Category"] == "High Value").sum(),
+                    len(df[df.groupby("Clean_Customer_Name")["Order_Date"].transform("count") > 1])
+                ]
+            })
 
-                with col3:
-                    rfm_data = df.groupby("Clean_Customer_Name").agg({
-                        "Order_Date": lambda x: (df["Order_Date"].max() - x.max()).days,
-                        "Final_Sales_Amount": ["sum", "count"]
-                    }).reset_index()
-                    rfm_data.columns = ["Customer", "Recency", "Monetary", "Frequency"]
+            fig_funnel = go.Figure(go.Funnel(
+                y=sales_funnel["Stage"],
+                x=sales_funnel["Count"],
+                textposition="inside",
+                textinfo="value+percent initial",
+                marker=dict(color=["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6"]),
+                hovertemplate='<b>%{y}</b><br>Count: %{x}<br>%{percentInitial}<extra></extra>'
+            ))
 
-                    rfm_data["R_Score"] = pd.qcut(rfm_data["Recency"], q=3, labels=[3, 2, 1], duplicates='drop')
-                    rfm_data["F_Score"] = pd.qcut(rfm_data["Frequency"], q=3, labels=[1, 2, 3], duplicates='drop')
-                    rfm_data["M_Score"] = pd.qcut(rfm_data["Monetary"], q=3, labels=[1, 2, 3], duplicates='drop')
+            fig_funnel.update_layout(
+                title="Sales Funnel Analysis",
+                height=500,
+                template="plotly_white"
+            )
 
-                    rfm_data["RFM_Score"] = (rfm_data["R_Score"].astype(int) +
-                                             rfm_data["F_Score"].astype(int) +
-                                             rfm_data["M_Score"].astype(int))
+            st.plotly_chart(fig_funnel, use_container_width=True)
 
-                    rfm_segments = rfm_data["RFM_Score"].value_counts().sort_index().reset_index()
-                    rfm_segments.columns = ["RFM Score", "Customers"]
+            col3, col4 = st.columns(2)
 
-                    fig_rfm = go.Figure(data=[go.Bar(
-                        x=rfm_segments["RFM Score"],
-                        y=rfm_segments["Customers"],
-                        marker=dict(
-                            color=rfm_segments["RFM Score"],
-                            colorscale='Tealgrn',
-                            showscale=False
-                        ),
-                        text=rfm_segments["Customers"],
-                        textposition='auto',
-                        hovertemplate='RFM Score: %{x}<br>Customers: %{y}<extra></extra>'
-                    )])
+            with col3:
+                rfm_data = df.groupby("Clean_Customer_Name").agg({
+                    "Order_Date": lambda x: (df["Order_Date"].max() - x.max()).days,
+                    "Final_Sales_Amount": ["sum", "count"]
+                }).reset_index()
+                rfm_data.columns = ["Customer", "Recency", "Monetary", "Frequency"]
 
-                    fig_rfm.update_layout(
-                        title="RFM Score Distribution (Recency, Frequency, Monetary)",
-                        xaxis_title="RFM Score (3=Low, 9=High)",
-                        yaxis_title="Number of Customers",
-                        height=400,
-                        template="plotly_white"
-                    )
+                rfm_data["R_Score"] = pd.qcut(rfm_data["Recency"], q=3, labels=[3, 2, 1], duplicates='drop')
+                rfm_data["F_Score"] = pd.qcut(rfm_data["Frequency"], q=3, labels=[1, 2, 3], duplicates='drop')
+                rfm_data["M_Score"] = pd.qcut(rfm_data["Monetary"], q=3, labels=[1, 2, 3], duplicates='drop')
 
-                    st.plotly_chart(fig_rfm, use_container_width=True)
+                rfm_data["RFM_Score"] = (rfm_data["R_Score"].astype(int) +
+                                         rfm_data["F_Score"].astype(int) +
+                                         rfm_data["M_Score"].astype(int))
 
-                with col4:
-                    monthly_growth = monthly.copy()
-                    monthly_growth["Growth_Rate"] = monthly_growth["Sales"].pct_change() * 100
-                    monthly_growth = monthly_growth.dropna()
+                rfm_segments = rfm_data["RFM_Score"].value_counts().sort_index().reset_index()
+                rfm_segments.columns = ["RFM Score", "Customers"]
 
-                    fig_growth = go.Figure()
+                fig_rfm = go.Figure(data=[go.Bar(
+                    x=rfm_segments["RFM Score"],
+                    y=rfm_segments["Customers"],
+                    marker=dict(
+                        color=rfm_segments["RFM Score"],
+                        colorscale='Tealgrn',
+                        showscale=False
+                    ),
+                    text=rfm_segments["Customers"],
+                    textposition='auto',
+                    hovertemplate='RFM Score: %{x}<br>Customers: %{y}<extra></extra>'
+                )])
 
-                    fig_growth.add_trace(go.Bar(
-                        x=monthly_growth["Month"],
-                        y=monthly_growth["Growth_Rate"],
-                        marker=dict(
-                            color=monthly_growth["Growth_Rate"],
-                            colorscale='RdYlGn',
-                            cmid=0,
-                            showscale=True,
-                            colorbar=dict(title="Growth %")
-                        ),
-                        text=[f'{val:.1f}%' for val in monthly_growth["Growth_Rate"]],
-                        textposition='auto',
-                        hovertemplate='Month: %{x}<br>Growth: %{y:.1f}%<extra></extra>'
-                    ))
+                fig_rfm.update_layout(
+                    title="RFM Score Distribution (Recency, Frequency, Monetary)",
+                    xaxis_title="RFM Score (3=Low, 9=High)",
+                    yaxis_title="Number of Customers",
+                    height=400,
+                    template="plotly_white"
+                )
 
-                    fig_growth.update_layout(
-                        title="Month-over-Month Growth Rate",
-                        xaxis_title="Month",
-                        yaxis_title="Growth Rate (%)",
-                        height=400,
-                        template="plotly_white"
-                    )
+                st.plotly_chart(fig_rfm, use_container_width=True)
 
-                    st.plotly_chart(fig_growth, use_container_width=True)
+            with col4:
+                monthly_growth = monthly.copy()
+                monthly_growth["Growth_Rate"] = monthly_growth["Sales"].pct_change() * 100
+                monthly_growth = monthly_growth.dropna()
 
-                st.markdown("<div class='section-title'>Key Business Insights</div>", unsafe_allow_html=True)
+                fig_growth = go.Figure()
 
-                insights_col1, insights_col2, insights_col3 = st.columns(3)
+                fig_growth.add_trace(go.Bar(
+                    x=monthly_growth["Month"],
+                    y=monthly_growth["Growth_Rate"],
+                    marker=dict(
+                        color=monthly_growth["Growth_Rate"],
+                        colorscale='RdYlGn',
+                        cmid=0,
+                        showscale=True,
+                        colorbar=dict(title="Growth %")
+                    ),
+                    text=[f'{val:.1f}%' for val in monthly_growth["Growth_Rate"]],
+                    textposition='auto',
+                    hovertemplate='Month: %{x}<br>Growth: %{y:.1f}%<extra></extra>'
+                ))
 
-                with insights_col1:
-                    top_performing_city = df.groupby("City")["Final_Sales_Amount"].sum().idxmax()
-                    top_city_sales = df.groupby("City")["Final_Sales_Amount"].sum().max()
+                fig_growth.update_layout(
+                    title="Month-over-Month Growth Rate",
+                    xaxis_title="Month",
+                    yaxis_title="Growth Rate (%)",
+                    height=400,
+                    template="plotly_white"
+                )
 
-                    st.markdown(f"""
-                    <div class='insight-card'>
-                        <h4>🏙️ Top Performing City</h4>
-                        <p><b>{top_performing_city}</b></p>
-                        <p>Revenue: {format_currency(top_city_sales)}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                st.plotly_chart(fig_growth, use_container_width=True)
 
-                with insights_col2:
-                    best_category = df.groupby("Product_Category")["Final_Sales_Amount"].sum().idxmax()
-                    best_category_sales = df.groupby("Product_Category")["Final_Sales_Amount"].sum().max()
+            st.markdown("<div class='section-title'>Key Business Insights</div>", unsafe_allow_html=True)
 
-                    st.markdown(f"""
-                    <div class='insight-card'>
-                        <h4>🏆 Best Category</h4>
-                        <p><b>{best_category}</b></p>
-                        <p>Revenue: {format_currency(best_category_sales)}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+            insights_col1, insights_col2, insights_col3 = st.columns(3)
 
-                with insights_col3:
-                    avg_discount_rate = df["Discount_Percent"].mean()
+            with insights_col1:
+                top_performing_city = df.groupby("City")["Final_Sales_Amount"].sum().idxmax()
+                top_city_sales = df.groupby("City")["Final_Sales_Amount"].sum().max()
 
-                    st.markdown(f"""
-                    <div class='insight-card'>
-                        <h4>💰 Discount Strategy</h4>
-                        <p><b>{format_percentage(avg_discount_rate)}</b></p>
-                        <p>Average Discount Rate</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                st.markdown(f"""
+                <div class='insight-card'>
+                    <h4>🏙️ Top Performing City</h4>
+                    <p><b>{top_performing_city}</b></p>
+                    <p>Revenue: {format_currency(top_city_sales)}</p>
+                </div>
+                """, unsafe_allow_html=True)
 
-            except Exception as tab6_error:
-                st.markdown(f"<div class='alert-box alert-error'>⚠️ Advanced Analytics temporarily unavailable. Error: {str(tab6_error)}</div>", unsafe_allow_html=True)
-                st.info("Other tabs remain fully functional. Please check your data or contact support.")
+            with insights_col2:
+                best_category = df.groupby("Product_Category")["Final_Sales_Amount"].sum().idxmax()
+                best_category_sales = df.groupby("Product_Category")["Final_Sales_Amount"].sum().max()
+
+                st.markdown(f"""
+                <div class='insight-card'>
+                    <h4>🏆 Best Category</h4>
+                    <p><b>{best_category}</b></p>
+                    <p>Revenue: {format_currency(best_category_sales)}</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+            with insights_col3:
+                avg_discount_rate = df["Discount_Percent"].mean()
+
+                st.markdown(f"""
+                <div class='insight-card'>
+                    <h4>💰 Discount Strategy</h4>
+                    <p><b>{format_percentage(avg_discount_rate)}</b></p>
+                    <p>Average Discount Rate</p>
+                </div>
+                """, unsafe_allow_html=True)
 
         st.markdown("---")
         st.markdown("<p style='text-align:center; color:#6b7280; font-size:14px;'>Dashboard built with Streamlit | Data analytics powered by Python</p>", unsafe_allow_html=True)

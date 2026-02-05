@@ -941,57 +941,72 @@ if file:
             )
 
         with tab6:
-            st.markdown("<div class='section-title'>Advanced Analytics & Insights</div>", unsafe_allow_html=True)
+            try:
+                st.markdown("<div class='section-title'>Advanced Analytics & Insights</div>", unsafe_allow_html=True)
 
-            col1, col2 = st.columns(2)
+                col1, col2 = st.columns(2)
 
-            with col1:
-                df_temp = df.copy()
-                df_temp["Discount_Range"] = pd.cut(
-                    df_temp["Discount_Percent"],
-                    bins=[0, 5, 10, 15, 20, 100],
-                    labels=["0-5%", "5-10%", "10-15%", "15-20%", "20%+"],
-                    include_lowest=True
-                )
+                with col1:
+                    discount_data_clean = df[df["Discount_Percent"].notna()].copy()
 
-                discount_impact = df_temp.groupby("Discount_Range", observed=True).agg({
-                    "Final_Sales_Amount": "sum",
-                    "Order_Date": "count"
-                }).reset_index()
-                discount_impact.columns = ["Discount Range", "Sales", "Orders"]
+                    if len(discount_data_clean) > 0:
+                        max_discount = discount_data_clean["Discount_Percent"].max()
 
-                fig_discount = go.Figure()
+                        if max_discount <= 20:
+                            bins = [0, 5, 10, 15, max_discount + 0.01]
+                            labels = ["0-5%", "5-10%", "10-15%", f"15-{max_discount:.0f}%"]
+                        else:
+                            bins = [0, 5, 10, 15, 20, max_discount + 0.01]
+                            labels = ["0-5%", "5-10%", "10-15%", "15-20%", f"20-{max_discount:.0f}%"]
 
-                fig_discount.add_trace(go.Bar(
-                    x=discount_impact["Discount Range"].astype(str),
-                    y=discount_impact["Sales"],
-                    name="Sales",
-                    marker_color='#3b82f6',
-                    yaxis='y',
-                    hovertemplate='Range: %{x}<br>Sales: ₹%{y:,.0f}<extra></extra>'
-                ))
+                        discount_data_clean["Discount_Range"] = pd.cut(
+                            discount_data_clean["Discount_Percent"],
+                            bins=bins,
+                            labels=labels,
+                            include_lowest=True,
+                            duplicates='drop'
+                        )
 
-                fig_discount.add_trace(go.Scatter(
-                    x=discount_impact["Discount Range"].astype(str),
-                    y=discount_impact["Orders"],
-                    name="Orders",
-                    mode='lines+markers',
-                    marker_color='#ef4444',
-                    yaxis='y2',
-                    hovertemplate='Range: %{x}<br>Orders: %{y}<extra></extra>'
-                ))
+                        discount_impact = discount_data_clean.groupby("Discount_Range", observed=True).agg({
+                            "Final_Sales_Amount": "sum",
+                            "Order_Date": "count"
+                        }).reset_index()
+                        discount_impact.columns = ["Discount Range", "Sales", "Orders"]
 
-                fig_discount.update_layout(
-                    title="Discount Impact Analysis",
-                    xaxis_title="Discount Range (%)",
-                    yaxis=dict(title="Sales (₹)", side='left'),
-                    yaxis2=dict(title="Orders", overlaying='y', side='right'),
-                    height=400,
-                    template="plotly_white",
-                    hovermode='x unified'
-                )
+                        fig_discount = go.Figure()
 
-                st.plotly_chart(fig_discount, use_container_width=True)
+                        fig_discount.add_trace(go.Bar(
+                            x=discount_impact["Discount Range"],
+                            y=discount_impact["Sales"],
+                            name="Sales",
+                            marker_color='#3b82f6',
+                            yaxis='y',
+                            hovertemplate='Range: %{x}<br>Sales: ₹%{y:,.0f}<extra></extra>'
+                        ))
+
+                        fig_discount.add_trace(go.Scatter(
+                            x=discount_impact["Discount Range"],
+                            y=discount_impact["Orders"],
+                            name="Orders",
+                            mode='lines+markers',
+                            marker_color='#ef4444',
+                            yaxis='y2',
+                            hovertemplate='Range: %{x}<br>Orders: %{y}<extra></extra>'
+                        ))
+
+                        fig_discount.update_layout(
+                            title="Discount Impact Analysis",
+                            xaxis_title="Discount Range (%)",
+                            yaxis=dict(title="Sales (₹)", side='left'),
+                            yaxis2=dict(title="Orders", overlaying='y', side='right'),
+                            height=400,
+                            template="plotly_white",
+                            hovermode='x unified'
+                        )
+
+                        st.plotly_chart(fig_discount, use_container_width=True)
+                    else:
+                        st.info("No discount data available for analysis")
 
             with col2:
                 basket_size = df.groupby("Order_Date").agg({
@@ -1162,6 +1177,10 @@ if file:
                     <p>Average Discount Rate</p>
                 </div>
                 """, unsafe_allow_html=True)
+
+            except Exception as tab6_error:
+                st.markdown(f"<div class='alert-box alert-error'>⚠️ Advanced Analytics temporarily unavailable. Error: {str(tab6_error)}</div>", unsafe_allow_html=True)
+                st.info("Other tabs remain fully functional. Please check your data or contact support.")
 
         st.markdown("---")
         st.markdown("<p style='text-align:center; color:#6b7280; font-size:14px;'>Dashboard built with Streamlit | Data analytics powered by Python</p>", unsafe_allow_html=True)

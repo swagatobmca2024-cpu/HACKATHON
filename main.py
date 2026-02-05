@@ -142,7 +142,8 @@ if file:
 
         ovc = df["Order_Value_Category"].value_counts().reset_index()
         ovc.columns=["Category","Count"]
-        fig1 = px.bar(ovc,x="Category",y="Count",title="Orders by Value Category")
+        fig1 = px.bar(ovc,x="Category",y="Count",
+                      text="Count",title="Orders by Value Category")
         col1.plotly_chart(fig1,use_container_width=True)
 
         city_sales = df.groupby("City")["Final_Sales_Amount"].sum().reset_index()
@@ -160,8 +161,13 @@ if file:
 
         fig_heat = px.imshow(
             heat,
+            text_auto=True,
+            aspect="auto",
+            color_continuous_scale="Turbo",
             title="City vs Category Sales Heatmap"
         )
+
+        fig_heat.update_layout(height=550)
 
         st.plotly_chart(fig_heat,use_container_width=True)
 
@@ -196,12 +202,14 @@ if file:
     with tab5:
         fast = df["Fast_Delivery_Flag"].value_counts().reset_index()
         fast.columns=["Type","Count"]
-        fig6 = px.pie(fast,names="Type",values="Count",title="Delivery Speed")
+        fig6 = px.pie(fast,names="Type",values="Count",
+                      title="Delivery Speed")
         st.plotly_chart(fig6)
 
         delv = df["Delivery_Status"].value_counts().reset_index()
         delv.columns=["Status","Count"]
-        fig7 = px.bar(delv,x="Status",y="Count",title="Delivery Status")
+        fig7 = px.bar(delv,x="Status",y="Count",
+                      title="Delivery Status")
         st.plotly_chart(fig7)
 
 else:

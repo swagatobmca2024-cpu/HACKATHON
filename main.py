@@ -59,8 +59,13 @@ file = st.file_uploader("Upload Excel File", type=["xlsx"])
 
 if file:
 
+    # 🔹 FIX: force day-first date parsing
     df = pd.read_excel(file)
-    df["Order_Date"] = pd.to_datetime(df["Order_Date"])
+    df["Order_Date"] = pd.to_datetime(
+        df["Order_Date"],
+        dayfirst=True,
+        errors="coerce"
+    )
 
     # -------------------------------------------------
     # CLEANING + FEATURE ENGINEERING

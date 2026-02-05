@@ -946,12 +946,11 @@ if file:
             col1, col2 = st.columns(2)
 
             with col1:
-                discount_impact = df.groupby(pd.cut(df["Discount_Percent"], bins=[0, 5, 10, 15, 20, 100])).agg({
+                discount_impact = df.groupby(pd.cut(df["Discount_Percent"], bins=[0, 5, 10, 15, 20, 100], labels=["0-5%", "5-10%", "10-15%", "15-20%", "20%+"], include_lowest=True)).agg({
                     "Final_Sales_Amount": "sum",
                     "Order_Date": "count"
                 }).reset_index()
                 discount_impact.columns = ["Discount Range", "Sales", "Orders"]
-                discount_impact["Discount Range"] = discount_impact["Discount Range"].astype(str)
 
                 fig_discount = go.Figure()
 

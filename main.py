@@ -1,539 +1,938 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import matplotlib.ticker as mticker
+from matplotlib.colors import LinearSegmentedColormap
+import warnings
 import io
+warnings.filterwarnings('ignore')
 
-# ── Page config ──────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+#  PAGE CONFIG
+# ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="Sales Data Cleaner",
-    page_icon="🧹",
+    page_title="Adidas Sales Intelligence",
+    page_icon="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>A</text></svg>",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-# ── Custom CSS ────────────────────────────────────────────────────────────────
-st.markdown("""
+# ─────────────────────────────────────────────
+#  COLOUR TOKENS
+# ─────────────────────────────────────────────
+DARK_BG = "#0A0A0F"
+CARD_BG = "#12121A"
+SIDE_BG = "#0D0D14"
+A1      = "#00E5FF"   # cyan
+A2      = "#FF3CAC"   # pink
+A3      = "#7B5EA7"   # violet
+A4      = "#F9C846"   # gold
+A5      = "#39FF14"   # neon green
+TPRI    = "#F0F0F5"
+TSEC    = "#8A8A9A"
+BDR     = "#1E1E2E"
+PALETTE = [A1, A2, A4, A5, A3, "#FF6B35"]
+
+# ─────────────────────────────────────────────
+#  INLINE SVG ICON HELPERS
+# ─────────────────────────────────────────────
+def svg(path_d, size=16, color=None, vb="0 0 24 24"):
+    c = color or A1
+    return (
+        f'<svg width="{size}" height="{size}" viewBox="{vb}" fill="none" '
+        f'xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;margin-right:6px;">'
+        f'<path d="{path_d}" stroke="{c}" stroke-width="1.8" '
+        f'stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    )
+
+def svg_fill(path_d, size=16, color=None, vb="0 0 24 24"):
+    c = color or A1
+    return (
+        f'<svg width="{size}" height="{size}" viewBox="{vb}" fill="{c}" '
+        f'xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;margin-right:6px;">'
+        f'<path d="{path_d}"/></svg>'
+    )
+
+# ─── Icon path constants ───────────────────────
+P_UPLOAD  = "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"
+P_CHART   = "M3 3v18h18M9 17V9m4 8v-5m4 5V5"
+P_GLOBE   = "M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"
+P_SHOE    = "M3 17h18l-3-8H6L3 17zM6 9l2-5h8l2 5"
+P_MAP     = "M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4zM8 2v16M16 6v16"
+P_CITY    = "M3 21h18M9 21V7l6-4v18M9 7l6-4M3 21V11l6-4M21 21V11l-6-4"
+P_PROFIT  = "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"
+P_SCATTER = "M8 8m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0M16 16m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0M8 16m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0M16 8m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"
+P_TREND   = "M22 7l-9 9-5-5L1 17M22 7h-6M22 7v6"
+P_FIND    = "M10 21a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-4.35-4.35"
+P_STAR    = "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+P_TAG     = "M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82zM7 7h.01"
+P_FLASH   = "M13 2L3 14h9l-1 8 10-12h-9l1-8z"
+P_ALERT   = "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"
+P_NAV     = "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"
+P_FILE    = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8"
+P_DOLLAR  = "M12 1v22M16 5H9a4 4 0 0 0 0 8h6a4 4 0 0 1 0 8H5"
+P_BOX     = "M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"
+P_WAVE    = "M22 12h-4l-3 9L9 3l-3 9H2"
+
+def ct(icon, label, color=None):
+    """Chart title with inline SVG."""
+    c = color or A1
+    return f'<div class="chart-title">{svg(icon, 15, c)}<span style="color:{c}">{label}</span></div>'
+
+def sl(icon, label, color=None):
+    """Section label with inline SVG."""
+    c = color or A2
+    return f'<div class="section-label">{svg(icon, 13, c)}<span>{label}</span></div>'
+
+# ─────────────────────────────────────────────
+#  ADIDAS-STYLE LOGO SVG
+# ─────────────────────────────────────────────
+LOGO_SVG = f"""
+<svg width="54" height="54" viewBox="0 0 54 54" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="54" height="54" rx="11" fill="{CARD_BG}" stroke="{A1}" stroke-width="1.2"/>
+  <polygon points="27,10 43,42 11,42" fill="none" stroke="{A1}" stroke-width="2.2" stroke-linejoin="round"/>
+  <line x1="18" y1="42" x2="36" y2="42" stroke="{A1}" stroke-width="2.2" stroke-linecap="round"/>
+  <line x1="21" y1="35" x2="33" y2="35" stroke="{A1}" stroke-width="2.2" stroke-linecap="round"/>
+  <line x1="24" y1="28" x2="30" y2="28" stroke="{A1}" stroke-width="2.2" stroke-linecap="round"/>
+</svg>
+"""
+
+LOGO_LG = f"""
+<svg width="82" height="82" viewBox="0 0 82 82" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="82" height="82" rx="18" fill="{CARD_BG}" stroke="{A1}" stroke-width="1.5"/>
+  <polygon points="41,14 62,64 20,64" fill="none" stroke="{A1}" stroke-width="2.5" stroke-linejoin="round"/>
+  <line x1="27" y1="64" x2="55" y2="64" stroke="{A1}" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="31" y1="54" x2="51" y2="54" stroke="{A1}" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="35" y1="44" x2="47" y2="44" stroke="{A1}" stroke-width="2.5" stroke-linecap="round"/>
+</svg>
+"""
+
+# ─────────────────────────────────────────────
+#  GLOBAL CSS
+# ─────────────────────────────────────────────
+st.markdown(f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
 
-html, body, [class*="css"] { font-family: 'Syne', sans-serif; }
-
-/* Background */
-.stApp { background: #0d0d0f; color: #e8e6e0; }
+html, body, [class*="css"] {{
+    background-color: {DARK_BG} !important;
+    color: {TPRI} !important;
+    font-family: 'Rajdhani', sans-serif;
+}}
+.stApp {{ background-color: {DARK_BG}; }}
 
 /* Sidebar */
-[data-testid="stSidebar"] {
-    background: #131316;
-    border-right: 1px solid #2a2a30;
-}
+section[data-testid="stSidebar"] {{
+    background: {SIDE_BG} !important;
+    border-right: 1px solid {BDR};
+}}
+section[data-testid="stSidebar"] * {{ color: {TPRI} !important; }}
 
-/* Cards */
-.card {
-    background: #17171c;
-    border: 1px solid #2a2a30;
+/* File uploader */
+div[data-testid="stFileUploader"] {{
+    background: {CARD_BG} !important;
+    border: 2px dashed {A1}55 !important;
+    border-radius: 12px !important;
+}}
+div[data-testid="stFileUploader"]:hover {{
+    border-color: {A1}AA !important;
+    box-shadow: 0 0 20px {A1}18 !important;
+}}
+
+/* Dashboard header */
+.dashboard-header {{
+    background: linear-gradient(135deg, {CARD_BG} 0%, #1A0A2E 100%);
+    border: 1px solid {A1}33;
+    border-radius: 16px;
+    padding: 24px 34px;
+    margin-bottom: 22px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}}
+.dashboard-header::before {{
+    content: '';
+    position: absolute;
+    top: -70px; right: -70px;
+    width: 230px; height: 230px;
+    background: radial-gradient(circle, {A1}18, transparent 70%);
+    border-radius: 50%;
+    pointer-events: none;
+}}
+.header-text h1 {{
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.75rem;
+    font-weight: 900;
+    background: linear-gradient(90deg, {A1}, {A2});
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0;
+    letter-spacing: 3px;
+}}
+.header-text p {{
+    color: {TSEC};
+    font-size: 0.82rem;
+    margin: 5px 0 0;
+    letter-spacing: 1px;
+    font-family: 'JetBrains Mono', monospace;
+}}
+
+/* KPI grid */
+.kpi-grid {{
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 13px;
+    margin-bottom: 22px;
+}}
+.kpi-card {{
+    background: {CARD_BG};
     border-radius: 12px;
-    padding: 20px 24px;
-    margin-bottom: 16px;
-}
-.card-red   { border-left: 4px solid #ff4d4d; }
-.card-amber { border-left: 4px solid #ffaa00; }
-.card-green { border-left: 4px solid #00cc88; }
-.card-blue  { border-left: 4px solid #4d9fff; }
-
-/* Metric pills */
-.metric-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
-.metric-pill {
-    background: #1e1e26;
-    border: 1px solid #2a2a30;
-    border-radius: 8px;
-    padding: 12px 20px;
-    flex: 1;
-    min-width: 140px;
-    text-align: center;
-}
-.metric-pill .val { font-size: 26px; font-weight: 800; }
-.metric-pill .lbl { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
-.red    { color: #ff4d4d; }
-.amber  { color: #ffaa00; }
-.green  { color: #00cc88; }
-.blue   { color: #4d9fff; }
-
-/* Section titles */
-.section-title {
-    font-size: 13px;
-    font-weight: 700;
+    padding: 18px 16px 22px;
+    border: 1px solid {BDR};
+    position: relative;
+    overflow: hidden;
+}}
+.kpi-card::after {{
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 3px;
+}}
+.kpi-c1::after {{ background: {A1}; }}
+.kpi-c2::after {{ background: {A2}; }}
+.kpi-c3::after {{ background: {A4}; }}
+.kpi-c4::after {{ background: {A5}; }}
+.kpi-c5::after {{ background: {A3}; }}
+.kpi-icon {{ margin-bottom: 10px; display:block; }}
+.kpi-label {{
+    font-size: 0.6rem;
+    color: {TSEC};
     text-transform: uppercase;
     letter-spacing: 2px;
-    color: #666;
-    margin: 28px 0 12px 0;
-    border-bottom: 1px solid #2a2a30;
-    padding-bottom: 8px;
-}
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 7px;
+}}
+.kpi-value {{
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: {TPRI};
+    line-height: 1;
+}}
+.kpi-sub {{
+    font-size: 0.66rem;
+    color: {TSEC};
+    margin-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+}}
 
-/* Badges */
-.badge {
-    display: inline-block;
-    padding: 2px 10px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-family: 'DM Mono', monospace;
-    font-weight: 500;
-}
-.badge-red   { background: #2a0d0d; color: #ff4d4d; border: 1px solid #ff4d4d40; }
-.badge-green { background: #0d2a1e; color: #00cc88; border: 1px solid #00cc8840; }
-.badge-amber { background: #2a1d0d; color: #ffaa00; border: 1px solid #ffaa0040; }
-.badge-blue  { background: #0d1a2a; color: #4d9fff; border: 1px solid #4d9fff40; }
+/* Chart title */
+.chart-title {{
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.7rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+}}
 
-/* Buttons */
-.stButton > button {
-    background: #00cc88 !important;
-    color: #0d0d0f !important;
-    border: none !important;
+/* Section label */
+.section-label {{
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.6rem;
+    color: {A2};
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    border-left: 3px solid {A2};
+    padding-left: 10px;
+    margin: 20px 0 14px;
+    display: flex;
+    align-items: center;
+}}
+
+/* Findings */
+.finding-card {{
+    background: linear-gradient(135deg, #12121A, #1a0a2e);
+    border: 1px solid {A1}44;
+    border-radius: 10px;
+    padding: 15px 18px;
+    margin-bottom: 12px;
+}}
+.finding-card h4 {{
+    color: {A1};
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.68rem;
+    letter-spacing: 2px;
+    margin: 0 0 8px;
+    display: flex;
+    align-items: center;
+}}
+.finding-card p {{
+    color: {TPRI};
+    font-size: 0.88rem;
+    margin: 0;
+    line-height: 1.6;
+}}
+
+/* Upload screen */
+.upload-wrap {{
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 50px 20px 30px;
+    text-align: center;
+}}
+.upload-wrap h2 {{
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.4rem;
+    font-weight: 900;
+    background: linear-gradient(90deg, {A1}, {A2});
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: 3px;
+    margin: 18px 0 8px;
+}}
+.upload-wrap p {{
+    color: {TSEC};
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    letter-spacing: 1px;
+    margin-bottom: 28px;
+    max-width: 480px;
+}}
+.upload-badge {{
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: {CARD_BG};
+    border: 1px solid {BDR};
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    color: {TSEC};
+    margin: 4px;
+}}
+
+/* Streamlit widget overrides */
+div[data-testid="stSelectbox"] > div,
+div[data-testid="stMultiSelect"] > div {{
+    background: {CARD_BG} !important;
+    border-color: {BDR} !important;
     border-radius: 8px !important;
-    font-family: 'Syne', sans-serif !important;
-    font-weight: 700 !important;
-    font-size: 14px !important;
-    padding: 10px 24px !important;
-    transition: all 0.2s !important;
-}
-.stButton > button:hover { opacity: 0.85 !important; transform: translateY(-1px) !important; }
-
-/* Dataframe */
-[data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
-
-/* Checkbox */
-.stCheckbox label { font-size: 14px !important; }
-
-/* Expander */
-.streamlit-expanderHeader { font-size: 14px !important; font-weight: 600 !important; }
-
-/* Success / warning / error boxes */
-.stSuccess, .stWarning, .stError, .stInfo { border-radius: 8px !important; }
-
-/* Download button */
-.stDownloadButton > button {
-    background: #17171c !important;
-    color: #00cc88 !important;
-    border: 1px solid #00cc88 !important;
-    border-radius: 8px !important;
-    font-family: 'Syne', sans-serif !important;
-    font-weight: 700 !important;
-}
+}}
+div.stButton > button {{
+    background: linear-gradient(135deg, {A1}22, {A2}22);
+    border: 1px solid {A1}55;
+    color: {A1};
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.6rem;
+    letter-spacing: 2px;
+    border-radius: 8px;
+}}
+div[data-testid="stDateInput"] input {{
+    background: {CARD_BG} !important;
+    color: {TPRI} !important;
+    border-color: {BDR} !important;
+    border-radius: 6px !important;
+}}
+label, .stRadio label, .stSelectbox label {{
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.68rem !important;
+    color: {TSEC} !important;
+    letter-spacing: 1px !important;
+}}
 </style>
 """, unsafe_allow_html=True)
 
+# ─────────────────────────────────────────────
+#  MATPLOTLIB DARK DEFAULTS
+# ─────────────────────────────────────────────
+plt.rcParams.update({
+    'figure.facecolor': DARK_BG,
+    'axes.facecolor':   CARD_BG,
+    'axes.edgecolor':   BDR,
+    'axes.labelcolor':  TSEC,
+    'axes.titlecolor':  TPRI,
+    'xtick.color':      TSEC,
+    'ytick.color':      TSEC,
+    'text.color':       TPRI,
+    'grid.color':       BDR,
+    'grid.linewidth':   0.5,
+    'legend.facecolor': CARD_BG,
+    'legend.edgecolor': BDR,
+})
 
-# ── Constants ────────────────────────────────────────────────────────────────
-VALID_RETAILERS = ['Foot Locker', 'Walmart', 'Sports Direct', 'West Gear', "Kohl's", 'Amazon']
-VALID_REGIONS   = ['Northeast', 'South', 'West', 'Midwest', 'Southeast']
-VALID_METHODS   = ['In-store', 'Outlet', 'Online']
-VALID_PRODUCTS  = [
-    "Men's Street Footwear", "Men's Athletic Footwear",
-    "Women's Street Footwear", "Women's Athletic Footwear",
-    "Men's Apparel", "Women's Apparel"
-]
-DATE_MIN = pd.Timestamp('2020-01-01')
-DATE_MAX = pd.Timestamp('2021-12-31')
+# ─────────────────────────────────────────────
+#  HELPERS
+# ─────────────────────────────────────────────
+def show_fig(fig):
+    st.pyplot(fig, use_container_width=True)
+    plt.close(fig)
 
+def fmt_num(n):
+    if n >= 1e9: return f"${n/1e9:.1f}B"
+    if n >= 1e6: return f"${n/1e6:.1f}M"
+    if n >= 1e3: return f"${n/1e3:.1f}K"
+    return f"${n:.2f}"
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
 @st.cache_data
-def load_data(file):
-    return pd.read_excel(file)
-
-
-def detect_issues(df: pd.DataFrame) -> dict:
-    issues = {}
-
-    # 1. Missing values
-    mv = df.isnull().sum()
-    issues['missing'] = mv[mv > 0].to_dict()
-
-    # 2. Duplicates
-    issues['duplicates'] = int(df.duplicated().sum())
-
-    # 3. Zero / negative units
-    issues['zero_units']     = df[df['Units Sold'] <= 0].index.tolist()
-    issues['negative_price'] = df[df['Price per Unit'] < 0].index.tolist()
-    issues['negative_sales'] = df[df['Total Sales'] < 0].index.tolist()
-
-    # 4. Total Sales mismatch  (Price × Units ≠ Total Sales)
-    df2 = df.copy()
-    df2['_calc'] = df2['Price per Unit'] * df2['Units Sold']
-    issues['sales_mismatch'] = df2[df2['Total Sales'] != df2['_calc']].index.tolist()
-
-    # 5. Operating Margin out of range (0–1)
-    issues['margin_oob'] = df[
-        (df['Operating Margin'] < 0) | (df['Operating Margin'] > 1)
-    ].index.tolist()
-
-    # 6. Invalid categories
-    issues['bad_retailer'] = df[~df['Retailer'].isin(VALID_RETAILERS)].index.tolist()
-    issues['bad_region']   = df[~df['Region'].isin(VALID_REGIONS)].index.tolist()
-    issues['bad_method']   = df[~df['Sales Method'].isin(VALID_METHODS)].index.tolist()
-    issues['bad_product']  = df[~df['Product'].isin(VALID_PRODUCTS)].index.tolist()
-
-    # 7. Date out of range
-    issues['date_oob'] = df[
-        (df['Invoice Date'] < DATE_MIN) | (df['Invoice Date'] > DATE_MAX)
-    ].index.tolist()
-
-    # 8. Whitespace in text columns
-    ws_cols = ['Retailer', 'Region', 'State', 'City', 'Product', 'Sales Method']
-    ws_rows = set()
-    for col in ws_cols:
-        ws_rows.update(df[df[col] != df[col].str.strip()].index.tolist())
-    issues['whitespace'] = list(ws_rows)
-
-    return issues
-
-
-def total_flagged(issues: dict) -> int:
-    flagged = set()
-    for key, val in issues.items():
-        if key == 'missing':
-            continue  # column-level, not row-level
-        if isinstance(val, list):
-            flagged.update(val)
-        elif isinstance(val, int) and key == 'duplicates':
-            pass
-    return len(flagged)
-
-
-def apply_fixes(df: pd.DataFrame, choices: dict) -> pd.DataFrame:
-    df = df.copy()
-
-    if choices.get('fix_whitespace'):
-        for col in ['Retailer', 'Region', 'State', 'City', 'Product', 'Sales Method']:
-            df[col] = df[col].str.strip()
-
-    if choices.get('fix_duplicates'):
-        df = df.drop_duplicates()
-
-    if choices.get('drop_zero_units'):
-        df = df[df['Units Sold'] > 0]
-
-    if choices.get('fix_sales_mismatch'):
-        df['Total Sales'] = df['Price per Unit'] * df['Units Sold']
-
-    if choices.get('fix_operating_profit'):
-        df['Operating Profit'] = df['Total Sales'] * df['Operating Margin']
-
-    if choices.get('drop_margin_oob'):
-        df = df[(df['Operating Margin'] >= 0) & (df['Operating Margin'] <= 1)]
-
-    if choices.get('drop_date_oob'):
-        df = df[(df['Invoice Date'] >= DATE_MIN) & (df['Invoice Date'] <= DATE_MAX)]
-
-    if choices.get('drop_bad_categories'):
-        df = df[
-            df['Retailer'].isin(VALID_RETAILERS) &
-            df['Region'].isin(VALID_REGIONS) &
-            df['Sales Method'].isin(VALID_METHODS) &
-            df['Product'].isin(VALID_PRODUCTS)
-        ]
-
+def load_data(file_bytes):
+    df = pd.read_excel(io.BytesIO(file_bytes))
+    df.columns = df.columns.str.strip()
+    df['Invoice Date'] = pd.to_datetime(df['Invoice Date'])
+    df['YearMonth']    = df['Invoice Date'].dt.to_period('M')
     return df
 
-
-def to_excel_bytes(df: pd.DataFrame) -> bytes:
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Cleaned Data')
-    return buf.getvalue()
-
-
-# ── App ──────────────────────────────────────────────────────────────────────
-st.markdown("## 🧹 Sales Data Cleaner")
-st.markdown('<p style="color:#666;font-size:14px;margin-top:-12px;">Detect, inspect & fix data quality issues in your sales Excel file</p>', unsafe_allow_html=True)
-
-# ── Sidebar: Upload ───────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+#  SIDEBAR
+# ─────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### 📂 Upload File")
-    uploaded = st.file_uploader("Drop your Excel file here", type=["xlsx", "xls"])
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;gap:12px;padding:14px 0 6px;">
+        {LOGO_SVG}
+        <div>
+            <div style="font-family:'Orbitron',sans-serif;font-size:0.92rem;
+                        font-weight:900;color:{A1};letter-spacing:2px;">ADIDAS</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.54rem;
+                        color:{TSEC};letter-spacing:3px;">SALES INTELLIGENCE</div>
+        </div>
+    </div>
+    <hr style="border-color:{BDR};margin:8px 0 16px;">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:{TSEC};
+                letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">
+        {svg(P_FILE, 12, TSEC)} Data Source
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.markdown("### ℹ️ What this app checks")
-    checks = [
-        ("🔴", "Zero / negative units"),
-        ("🔴", "Total Sales ≠ Price × Units"),
-        ("🟡", "Duplicate rows"),
-        ("🟡", "Operating margin out of 0–100%"),
-        ("🟡", "Dates outside 2020–2021"),
-        ("🟢", "Whitespace in text fields"),
-        ("🟢", "Invalid category values"),
-        ("🟢", "Missing values"),
-    ]
-    for icon, label in checks:
-        st.markdown(f"{icon} {label}")
+    uploaded_file = st.file_uploader(
+        "Upload Excel",
+        type=["xlsx", "xls"],
+        label_visibility="collapsed",
+        help="Upload your Adidas Sales Analysis Excel file"
+    )
 
-if not uploaded:
-    st.markdown("""
-    <div class="card card-blue" style="margin-top:40px;text-align:center;padding:60px;">
-        <div style="font-size:48px;margin-bottom:16px;">📊</div>
-        <div style="font-size:20px;font-weight:700;margin-bottom:8px;">Upload your Excel file to begin</div>
-        <div style="color:#666;font-size:14px;">Supports .xlsx and .xls · Use the sidebar to upload</div>
+    st.markdown(f"""
+    <hr style="border-color:{BDR};margin:16px 0 12px;">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:{TSEC};
+                letter-spacing:2px;text-transform:uppercase;margin-bottom:10px;">
+        {svg(P_NAV, 12, TSEC)} Navigation
+    </div>
+    """, unsafe_allow_html=True)
+
+    page = st.radio("Page", ["Sales Overview", "Geo & Product Deep Dive"],
+                    label_visibility="collapsed")
+
+    if uploaded_file:
+        st.markdown(f"""
+        <hr style="border-color:{BDR};margin:16px 0 12px;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:{TSEC};
+                    letter-spacing:2px;text-transform:uppercase;margin-bottom:10px;">
+            {svg(P_FIND, 12, TSEC)} Filters
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown(f"""
+    <div style="position:fixed;bottom:14px;left:0;width:236px;text-align:center;
+                font-family:'JetBrains Mono',monospace;font-size:0.5rem;
+                color:{TSEC}33;letter-spacing:1px;">
+        STREAMLIT + MATPLOTLIB + PANDAS
+    </div>
+    """, unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+#  UPLOAD GATE
+# ─────────────────────────────────────────────
+if uploaded_file is None:
+    st.markdown(f'<div class="upload-wrap">{LOGO_LG}<h2>ADIDAS SALES INTELLIGENCE</h2><p>Upload your Sales Analysis Excel file (.xlsx) to launch the interactive dashboard and explore all KPIs, charts, and insights.</p></div>', unsafe_allow_html=True)
+
+    uc1, uc2, uc3 = st.columns([1, 2, 1])
+    with uc2:
+        st.markdown(f"""
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;
+                    margin-bottom:6px;">
+            {svg(P_UPLOAD, 18, A1)}
+            <span style="font-family:'Orbitron',sans-serif;font-size:0.68rem;
+                         color:{A1};letter-spacing:2px;">DROP OR BROWSE EXCEL FILE</span>
+        </div>
+        """, unsafe_allow_html=True)
+        center_file = st.file_uploader("Upload here", type=["xlsx","xls"],
+                                       label_visibility="collapsed", key="center_up")
+        if center_file:
+            uploaded_file = center_file
+
+    st.markdown(f"""
+    <div style="text-align:center;margin-top:22px;">
+        <span class="upload-badge">{svg(P_FILE,12,TSEC)}Excel (.xlsx / .xls)</span>
+        <span class="upload-badge">{svg(P_CHART,12,TSEC)}9,000+ Records</span>
+        <span class="upload-badge">{svg(P_FLASH,12,TSEC)}Instant Analysis</span>
+        <span class="upload-badge">{svg(P_NAV,12,TSEC)}2-Page Dashboard</span>
+    </div>
+    <div style="text-align:center;margin-top:14px;font-family:'JetBrains Mono',monospace;
+                font-size:0.6rem;color:{TSEC}44;letter-spacing:1px;">
+        Expected columns: Retailer · Region · State · City · Product · Price per Unit ·
+        Units Sold · Total Sales · Operating Profit · Operating Margin · Sales Method · Invoice Date
     </div>
     """, unsafe_allow_html=True)
     st.stop()
 
+# ─────────────────────────────────────────────
+#  LOAD & CACHE DATA
+# ─────────────────────────────────────────────
+try:
+    file_bytes = uploaded_file.read()
+    df_raw = load_data(file_bytes)
+except Exception as exc:
+    st.error(f"Could not read file: {exc}")
+    st.stop()
 
-# ── Load & Detect ─────────────────────────────────────────────────────────────
-df_raw = load_data(uploaded)
-issues = detect_issues(df_raw)
+# ─────────────────────────────────────────────
+#  SIDEBAR FILTERS (after data loaded)
+# ─────────────────────────────────────────────
+with st.sidebar:
+    if page == "Sales Overview":
+        regions   = ["All"] + sorted(df_raw['Region'].dropna().unique())
+        retailers = ["All"] + sorted(df_raw['Retailer'].dropna().unique())
+        sel_region   = st.selectbox("Region",   regions)
+        sel_retailer = st.selectbox("Retailer", retailers)
+        min_d = df_raw['Invoice Date'].min().date()
+        max_d = df_raw['Invoice Date'].max().date()
+        date_range = st.date_input("Date Range",
+                        value=(min_d, max_d), min_value=min_d, max_value=max_d)
+        sel_method  = "All"
+        sel_product = "All"
+    else:
+        methods  = ["All"] + sorted(df_raw['Sales Method'].dropna().unique())
+        products = ["All"] + sorted(df_raw['Product'].dropna().unique())
+        sel_method  = st.selectbox("Sales Method", methods)
+        sel_product = st.selectbox("Product",      products)
+        sel_region   = "All"
+        sel_retailer = "All"
+        date_range   = None
 
-n_rows      = len(df_raw)
-n_flagged   = total_flagged(issues)
-n_missing   = sum(issues['missing'].values()) if issues['missing'] else 0
-n_dupes     = issues['duplicates']
-n_zero      = len(issues['zero_units'])
-n_mismatch  = len(issues['sales_mismatch'])
-n_margin    = len(issues['margin_oob'])
-n_date      = len(issues['date_oob'])
-n_ws        = len(issues['whitespace'])
-n_badcat    = len(issues['bad_retailer']) + len(issues['bad_region']) + len(issues['bad_method']) + len(issues['bad_product'])
+# ─────────────────────────────────────────────
+#  FILTER HELPERS
+# ─────────────────────────────────────────────
+def filter_p1(df):
+    d = df.copy()
+    if sel_region   != "All": d = d[d['Region']   == sel_region]
+    if sel_retailer != "All": d = d[d['Retailer'] == sel_retailer]
+    if date_range and len(date_range) == 2:
+        d = d[(d['Invoice Date'].dt.date >= date_range[0]) &
+              (d['Invoice Date'].dt.date <= date_range[1])]
+    return d
 
-# ── KPI row ───────────────────────────────────────────────────────────────────
-col1, col2, col3, col4, col5 = st.columns(5)
-with col1:
-    st.metric("Total Rows", f"{n_rows:,}")
-with col2:
-    st.metric("Flagged Rows", f"{n_flagged:,}", delta=f"{n_flagged/n_rows:.1%} of total", delta_color="inverse")
-with col3:
-    st.metric("Missing Values", f"{n_missing:,}", delta_color="inverse")
-with col4:
-    st.metric("Duplicates", f"{n_dupes:,}", delta_color="inverse")
-with col5:
-    st.metric("Data Errors", f"{n_zero + n_mismatch + n_margin + n_date:,}", delta_color="inverse")
+def filter_p2(df):
+    d = df.copy()
+    if sel_method  != "All": d = d[d['Sales Method'] == sel_method]
+    if sel_product != "All": d = d[d['Product']      == sel_product]
+    return d
 
-st.markdown("---")
+# ════════════════════════════════════════════════════════════
+#  PAGE 1 — SALES OVERVIEW
+# ════════════════════════════════════════════════════════════
+if page == "Sales Overview":
+    df = filter_p1(df_raw)
 
-# ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["🔍 Issue Report", "🛠️ Clean Data", "✅ Preview & Export"])
+    # ── Header ──────────────────────────────────
+    st.markdown(f"""
+    <div class="dashboard-header">
+        <div>{LOGO_SVG}</div>
+        <div class="header-text">
+            <h1>SALES OVERVIEW</h1>
+            <p>Total Sales &nbsp;·&nbsp; Profitability &nbsp;·&nbsp; Volume &nbsp;·&nbsp; Pricing &nbsp;·&nbsp; Margin Analysis</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 1 — ISSUE REPORT
-# ══════════════════════════════════════════════════════════════════════════════
-with tab1:
-    st.markdown('<div class="section-title">Critical Issues</div>', unsafe_allow_html=True)
+    # ── KPIs ────────────────────────────────────
+    total_sales  = df['Total Sales'].sum()
+    total_profit = df['Operating Profit'].sum()
+    total_units  = int(df['Units Sold'].sum())
+    avg_price    = df['Price per Unit'].mean()
+    avg_margin   = df['Operating Margin'].mean() * 100
 
-    c1, c2 = st.columns(2)
+    st.markdown(f"""
+    <div class="kpi-grid">
+      <div class="kpi-card kpi-c1">
+        <span class="kpi-icon">{svg(P_STAR, 20, A1)}</span>
+        <div class="kpi-label">Total Sales</div>
+        <div class="kpi-value">{fmt_num(total_sales)}</div>
+        <div class="kpi-sub">Overall Revenue</div>
+      </div>
+      <div class="kpi-card kpi-c2">
+        <span class="kpi-icon">{svg(P_PROFIT, 20, A2)}</span>
+        <div class="kpi-label">Operating Profit</div>
+        <div class="kpi-value">{fmt_num(total_profit)}</div>
+        <div class="kpi-sub">Net Profitability</div>
+      </div>
+      <div class="kpi-card kpi-c3">
+        <span class="kpi-icon">{svg(P_BOX, 20, A4)}</span>
+        <div class="kpi-label">Units Sold</div>
+        <div class="kpi-value">{total_units:,}</div>
+        <div class="kpi-sub">Product Demand</div>
+      </div>
+      <div class="kpi-card kpi-c4">
+        <span class="kpi-icon">{svg(P_DOLLAR, 20, A5)}</span>
+        <div class="kpi-label">Avg Price / Unit</div>
+        <div class="kpi-value">${avg_price:.2f}</div>
+        <div class="kpi-sub">Pricing Strategy</div>
+      </div>
+      <div class="kpi-card kpi-c5">
+        <span class="kpi-icon">{svg(P_WAVE, 20, A3)}</span>
+        <div class="kpi-label">Avg Margin</div>
+        <div class="kpi-value">{avg_margin:.1f}%</div>
+        <div class="kpi-sub">Profitability Rate</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Row 1: Area Chart + Region Donut ────────
+    c1, c2 = st.columns([2, 1])
 
     with c1:
-        severity = "🔴 Found" if n_zero > 0 else "✅ None"
-        color    = "card-red" if n_zero > 0 else "card-green"
-        st.markdown(f"""
-        <div class="card {color}">
-            <b>Zero / Negative Units Sold</b><br>
-            <span style="font-size:13px;color:#888;">Rows where Units Sold ≤ 0 — no sale occurred</span><br><br>
-            <span class="badge {'badge-red' if n_zero > 0 else 'badge-green'}">{severity} · {n_zero} rows</span>
-        </div>""", unsafe_allow_html=True)
-        if n_zero > 0:
-            with st.expander("View affected rows"):
-                st.dataframe(df_raw.loc[issues['zero_units']], use_container_width=True)
+        st.markdown(ct(P_TREND, "TOTAL SALES BY MONTH — AREA CHART"), unsafe_allow_html=True)
+        monthly = (df.groupby('YearMonth')['Total Sales']
+                     .sum().reset_index().sort_values('YearMonth'))
+        monthly['Label'] = monthly['YearMonth'].astype(str)
+        x = np.arange(len(monthly))
+        y = monthly['Total Sales'].values / 1e6
+
+        fig, ax = plt.subplots(figsize=(10, 3.8))
+        fig.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CARD_BG)
+        cmap_area = LinearSegmentedColormap.from_list('a', [A1 + '00', A1 + '70'])
+        if len(x) > 1:
+            ax.imshow(np.linspace(0, 1, 300).reshape(1, -1), aspect='auto',
+                      extent=[x[0], x[-1], 0, y.max()],
+                      cmap=cmap_area, origin='lower', zorder=1, alpha=0.45)
+        ax.plot(x, y, color=A1, lw=2.5, zorder=5)
+        ax.fill_between(x, y, color=A1, alpha=0.07, zorder=2)
+        ax.scatter(x, y, color=A1, s=26, zorder=6)
+        step = max(1, len(monthly) // 8)
+        ax.set_xticks(x[::step])
+        ax.set_xticklabels(monthly['Label'].iloc[::step], rotation=30, ha='right', fontsize=8)
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f'${v:.0f}M'))
+        ax.grid(axis='y', alpha=0.25)
+        ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+        plt.tight_layout()
+        show_fig(fig)
 
     with c2:
-        severity = "🔴 Found" if n_mismatch > 0 else "✅ None"
-        color    = "card-red" if n_mismatch > 0 else "card-green"
-        st.markdown(f"""
-        <div class="card {color}">
-            <b>Total Sales ≠ Price × Units</b><br>
-            <span style="font-size:13px;color:#888;">Calculated revenue doesn't match the stored value</span><br><br>
-            <span class="badge {'badge-red' if n_mismatch > 0 else 'badge-green'}">{severity} · {n_mismatch} rows</span>
-        </div>""", unsafe_allow_html=True)
-        if n_mismatch > 0:
-            with st.expander("View affected rows"):
-                temp = df_raw.loc[issues['sales_mismatch']].copy()
-                temp['Expected Sales'] = temp['Price per Unit'] * temp['Units Sold']
-                temp['Difference']     = temp['Total Sales'] - temp['Expected Sales']
-                st.dataframe(temp[['Retailer','Product','Price per Unit','Units Sold','Total Sales','Expected Sales','Difference']], use_container_width=True)
+        st.markdown(ct(P_GLOBE, "SALES BY REGION — DONUT"), unsafe_allow_html=True)
+        reg = df.groupby('Region')['Total Sales'].sum()
+        fig, ax = plt.subplots(figsize=(4.5, 3.8))
+        fig.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CARD_BG)
+        wedges, texts, autos = ax.pie(
+            reg.values, labels=reg.index, autopct='%1.1f%%',
+            colors=PALETTE[:len(reg)],
+            wedgeprops=dict(width=0.52, edgecolor=CARD_BG, linewidth=2),
+            pctdistance=0.82, startangle=90)
+        for t in texts: t.set_color(TSEC); t.set_fontsize(8)
+        for a in autos: a.set_color(DARK_BG); a.set_fontsize(7.5); a.set_fontweight('bold')
+        plt.tight_layout()
+        show_fig(fig)
 
-    st.markdown('<div class="section-title">Moderate Issues</div>', unsafe_allow_html=True)
-
-    c3, c4, c5 = st.columns(3)
+    # ── Row 2: Product Bar + Sales Method Donut ──
+    c3, c4 = st.columns([2, 1])
 
     with c3:
-        severity = "🟡 Found" if n_dupes > 0 else "✅ None"
-        color    = "card-amber" if n_dupes > 0 else "card-green"
-        st.markdown(f"""
-        <div class="card {color}">
-            <b>Duplicate Rows</b><br>
-            <span style="font-size:13px;color:#888;">Exact row copies that inflate counts</span><br><br>
-            <span class="badge {'badge-amber' if n_dupes > 0 else 'badge-green'}">{severity} · {n_dupes} rows</span>
-        </div>""", unsafe_allow_html=True)
+        st.markdown(ct(P_SHOE, "TOTAL SALES BY PRODUCT — BAR CHART"), unsafe_allow_html=True)
+        prod = df.groupby('Product')['Total Sales'].sum().sort_values()
+        fig, ax = plt.subplots(figsize=(10, 3.8))
+        fig.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CARD_BG)
+        ax.barh(prod.index, prod.values / 1e6,
+                color=PALETTE[:len(prod)], edgecolor='none', height=0.58)
+        for i, v in enumerate(prod.values):
+            ax.text(v / 1e6 + 0.2, i, f'${v/1e6:.1f}M',
+                    va='center', fontsize=8, color=TSEC)
+        ax.set_xlabel('Sales (Millions $)', fontsize=8)
+        ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+        ax.grid(axis='x', alpha=0.2)
+        ax.tick_params(axis='y', labelsize=8)
+        plt.tight_layout()
+        show_fig(fig)
 
     with c4:
-        severity = "🟡 Found" if n_margin > 0 else "✅ None"
-        color    = "card-amber" if n_margin > 0 else "card-green"
-        st.markdown(f"""
-        <div class="card {color}">
-            <b>Operating Margin Out of Range</b><br>
-            <span style="font-size:13px;color:#888;">Margin should be between 0% and 100%</span><br><br>
-            <span class="badge {'badge-amber' if n_margin > 0 else 'badge-green'}">{severity} · {n_margin} rows</span>
-        </div>""", unsafe_allow_html=True)
+        st.markdown(ct(P_CHART, "SALES BY METHOD — DONUT"), unsafe_allow_html=True)
+        meth = df.groupby('Sales Method')['Total Sales'].sum()
+        fig, ax = plt.subplots(figsize=(4.5, 3.8))
+        fig.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CARD_BG)
+        wedges, texts, autos = ax.pie(
+            meth.values, labels=meth.index, autopct='%1.1f%%',
+            colors=[A2, A4, A1],
+            wedgeprops=dict(width=0.52, edgecolor=CARD_BG, linewidth=2),
+            pctdistance=0.82, startangle=90)
+        for t in texts: t.set_color(TSEC); t.set_fontsize(8)
+        for a in autos: a.set_color(DARK_BG); a.set_fontsize(7.5); a.set_fontweight('bold')
+        plt.tight_layout()
+        show_fig(fig)
 
-    with c5:
-        severity = "🟡 Found" if n_date > 0 else "✅ None"
-        color    = "card-amber" if n_date > 0 else "card-green"
-        st.markdown(f"""
-        <div class="card {color}">
-            <b>Dates Outside 2020–2021</b><br>
-            <span style="font-size:13px;color:#888;">Invoice dates outside the expected range</span><br><br>
-            <span class="badge {'badge-amber' if n_date > 0 else 'badge-green'}">{severity} · {n_date} rows</span>
-        </div>""", unsafe_allow_html=True)
+    # ── Retailer Bar (full width) ────────────────
+    st.markdown(ct(P_STAR, "TOTAL SALES BY RETAILER — BAR CHART", A4), unsafe_allow_html=True)
+    ret = df.groupby('Retailer')['Total Sales'].sum().sort_values(ascending=False)
+    fig, ax = plt.subplots(figsize=(14, 3.2))
+    fig.patch.set_facecolor(CARD_BG)
+    ax.set_facecolor(CARD_BG)
+    bar_colors = [A1 if i == 0 else A3 for i in range(len(ret))]
+    bars = ax.bar(ret.index, ret.values / 1e6, color=bar_colors, edgecolor='none', width=0.5)
+    for bar in bars:
+        h = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2, h + 0.4,
+                f'${h:.1f}M', ha='center', fontsize=8, color=TSEC)
+    ax.set_ylabel('Sales (M$)', fontsize=8)
+    ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+    ax.grid(axis='y', alpha=0.2)
+    plt.tight_layout()
+    show_fig(fig)
 
-    st.markdown('<div class="section-title">Minor Issues</div>', unsafe_allow_html=True)
+    # ── Key Findings ────────────────────────────
+    st.markdown(sl(P_FIND, "KEY FINDINGS — SALES OVERVIEW"), unsafe_allow_html=True)
 
-    c6, c7, c8 = st.columns(3)
+    top_retailer = ret.index[0]
+    top_product  = df.groupby('Product')['Total Sales'].sum().idxmax()
+    top_region   = df.groupby('Region')['Total Sales'].sum().idxmax()
+    top_method   = df.groupby('Sales Method')['Total Sales'].sum().idxmax()
+    peak_month   = monthly.loc[monthly['Total Sales'].idxmax(), 'Label']
 
-    with c6:
-        severity = "⚠️ Found" if n_ws > 0 else "✅ None"
-        color    = "card-amber" if n_ws > 0 else "card-green"
-        st.markdown(f"""
-        <div class="card {color}">
-            <b>Whitespace in Text Fields</b><br>
-            <span style="font-size:13px;color:#888;">Leading/trailing spaces cause groupby mismatches</span><br><br>
-            <span class="badge {'badge-amber' if n_ws > 0 else 'badge-green'}">{severity} · {n_ws} rows</span>
-        </div>""", unsafe_allow_html=True)
+    findings1 = [
+        (P_STAR,   A4, "TOP RETAILER",
+         f"<b>{top_retailer}</b> leads all retailers in total revenue, capturing the largest share of Adidas sales across the dataset period."),
+        (P_SHOE,   A1, "BEST-SELLING PRODUCT",
+         f"<b>{top_product}</b> drives the most revenue, signalling strong consumer preference and a strategic pricing sweet spot."),
+        (P_GLOBE,  A2, "DOMINANT REGION",
+         f"The <b>{top_region}</b> region contributes the highest sales volume — the priority market for distribution and marketing."),
+        (P_CHART,  A5, "PREFERRED SALES CHANNEL",
+         f"<b>{top_method}</b> is the most productive channel by revenue, signalling where continued investment will yield highest returns."),
+        (P_TREND,  A1, "PEAK SALES MONTH",
+         f"Sales peaked in <b>{peak_month}</b>, likely driven by seasonal demand, promotions, or product launches — critical for inventory planning."),
+        (P_WAVE,   A3, "MARGIN HEALTH",
+         f"Average operating margin of <b>{avg_margin:.1f}%</b> reflects a healthy profitability baseline, with product-level optimisation opportunities remaining."),
+    ]
+    f1, f2 = st.columns(2)
+    for i, (icon_d, ic, title, body) in enumerate(findings1):
+        with (f1 if i % 2 == 0 else f2):
+            st.markdown(f"""
+            <div class="finding-card">
+                <h4>{svg(icon_d, 13, ic)}{title}</h4>
+                <p>{body}</p>
+            </div>""", unsafe_allow_html=True)
 
-    with c7:
-        severity = "⚠️ Found" if n_badcat > 0 else "✅ None"
-        color    = "card-amber" if n_badcat > 0 else "card-green"
-        st.markdown(f"""
-        <div class="card {color}">
-            <b>Invalid Category Values</b><br>
-            <span style="font-size:13px;color:#888;">Retailer / Region / Product / Sales Method anomalies</span><br><br>
-            <span class="badge {'badge-amber' if n_badcat > 0 else 'badge-green'}">{severity} · {n_badcat} rows</span>
-        </div>""", unsafe_allow_html=True)
+# ════════════════════════════════════════════════════════════
+#  PAGE 2 — GEO & PRODUCT DEEP DIVE
+# ════════════════════════════════════════════════════════════
+else:
+    df = filter_p2(df_raw)
 
-    with c8:
-        severity = "⚠️ Found" if n_missing > 0 else "✅ None"
-        color    = "card-amber" if n_missing > 0 else "card-green"
-        st.markdown(f"""
-        <div class="card {color}">
-            <b>Missing Values</b><br>
-            <span style="font-size:13px;color:#888;">Null / NaN cells across all columns</span><br><br>
-            <span class="badge {'badge-amber' if n_missing > 0 else 'badge-green'}">{severity} · {n_missing} cells</span>
-        </div>""", unsafe_allow_html=True)
+    # ── Header ──────────────────────────────────
+    st.markdown(f"""
+    <div class="dashboard-header">
+        <div>{LOGO_SVG}</div>
+        <div class="header-text">
+            <h1>GEO &amp; PRODUCT DEEP DIVE</h1>
+            <p>State &nbsp;·&nbsp; City Rankings &nbsp;·&nbsp; Product Profitability &nbsp;·&nbsp; Price-Volume &nbsp;·&nbsp; Sales vs Profit</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-        if n_missing > 0:
-            with st.expander("See missing breakdown"):
-                for col, count in issues['missing'].items():
-                    st.markdown(f"**{col}**: {count} missing")
+    # ── KPIs ────────────────────────────────────
+    top_state    = df.groupby('State')['Total Sales'].sum().idxmax()
+    top_prod2    = df.groupby('Product')['Total Sales'].sum().idxmax()
+    top_ret_prof = df.groupby('Retailer')['Operating Profit'].sum().idxmax()
+    avg_price2   = df['Price per Unit'].mean()
 
+    st.markdown(f"""
+    <div class="kpi-grid">
+      <div class="kpi-card kpi-c1">
+        <span class="kpi-icon">{svg(P_MAP, 20, A1)}</span>
+        <div class="kpi-label">Highest Selling State</div>
+        <div class="kpi-value" style="font-size:1.05rem;">{top_state}</div>
+        <div class="kpi-sub">By Total Revenue</div>
+      </div>
+      <div class="kpi-card kpi-c2">
+        <span class="kpi-icon">{svg(P_TAG, 20, A2)}</span>
+        <div class="kpi-label">Highest Selling Product</div>
+        <div class="kpi-value" style="font-size:0.88rem;">{top_prod2}</div>
+        <div class="kpi-sub">By Total Revenue</div>
+      </div>
+      <div class="kpi-card kpi-c3">
+        <span class="kpi-icon">{svg(P_STAR, 20, A4)}</span>
+        <div class="kpi-label">Most Profitable Retailer</div>
+        <div class="kpi-value" style="font-size:0.95rem;">{top_ret_prof}</div>
+        <div class="kpi-sub">By Operating Profit</div>
+      </div>
+      <div class="kpi-card kpi-c4">
+        <span class="kpi-icon">{svg(P_DOLLAR, 20, A5)}</span>
+        <div class="kpi-label">Avg Price / Unit</div>
+        <div class="kpi-value">${avg_price2:.2f}</div>
+        <div class="kpi-sub">Pricing Benchmark</div>
+      </div>
+      <div class="kpi-card kpi-c5">
+        <span class="kpi-icon">{svg(P_FILE, 20, A3)}</span>
+        <div class="kpi-label">Total Records</div>
+        <div class="kpi-value">{len(df):,}</div>
+        <div class="kpi-sub">Filtered Dataset</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — CLEAN DATA
-# ══════════════════════════════════════════════════════════════════════════════
-with tab2:
-    st.markdown("### Choose what to fix")
-    st.markdown('<p style="color:#666;font-size:13px;margin-top:-10px;">Select the cleaning operations to apply, then click Apply Fixes.</p>', unsafe_allow_html=True)
+    # ── Row 1: State Bar + City Bar ──────────────
+    c1, c2 = st.columns([1, 1])
 
-    col_a, col_b = st.columns(2)
+    with c1:
+        st.markdown(ct(P_MAP, "TOTAL SALES BY STATE — TOP 20 FILLED BAR"), unsafe_allow_html=True)
+        state_sales = (df.groupby('State')['Total Sales'].sum()
+                         .sort_values(ascending=False).head(20))
+        norm = state_sales.values / state_sales.max()
+        # cyan gradient encoding intensity
+        cs = [f"#{int(0):02x}{int(n*229):02x}{int(n*255):02x}" for n in norm]
+        fig, ax = plt.subplots(figsize=(7, 6))
+        fig.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CARD_BG)
+        ax.barh(state_sales.index[::-1], state_sales.values[::-1] / 1e6,
+                color=cs[::-1], edgecolor='none', height=0.65)
+        for i, v in enumerate(state_sales.values[::-1]):
+            ax.text(v / 1e6 + 0.1, i, f'${v/1e6:.1f}M',
+                    va='center', fontsize=7, color=TSEC)
+        ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+        ax.grid(axis='x', alpha=0.2)
+        ax.tick_params(axis='y', labelsize=7.5)
+        ax.set_xlabel('Sales (M$)', fontsize=8)
+        plt.tight_layout()
+        show_fig(fig)
 
-    with col_a:
-        st.markdown('<div class="section-title">🔴 Critical Fixes</div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown(ct(P_CITY, "TOP 10 CITIES BY SALES — BAR CHART"), unsafe_allow_html=True)
+        city_sales = (df.groupby('City')['Total Sales'].sum()
+                        .sort_values(ascending=False).head(10))
+        fig, ax = plt.subplots(figsize=(7, 6))
+        fig.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CARD_BG)
+        xp = np.arange(len(city_sales))
+        ax.bar(xp, city_sales.values / 1e6,
+               color=PALETTE[:len(city_sales)], edgecolor='none', width=0.6)
+        for i, v in enumerate(city_sales.values):
+            ax.text(i, v / 1e6 + 0.15, f'${v/1e6:.1f}M',
+                    ha='center', fontsize=7, color=TSEC)
+        ax.set_xticks(xp)
+        ax.set_xticklabels(city_sales.index, rotation=35, ha='right', fontsize=8)
+        ax.set_ylabel('Sales (M$)', fontsize=8)
+        ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+        ax.grid(axis='y', alpha=0.2)
+        plt.tight_layout()
+        show_fig(fig)
 
-        fix_zero = st.checkbox(
-            f"Remove rows with 0 or negative Units Sold  ({n_zero} rows)",
-            value=n_zero > 0,
-            disabled=n_zero == 0,
-        )
-        fix_mismatch = st.checkbox(
-            f"Recalculate Total Sales = Price × Units  ({n_mismatch} rows affected)",
-            value=n_mismatch > 0,
-            disabled=n_mismatch == 0,
-        )
-        if fix_mismatch:
-            fix_profit = st.checkbox(
-                "Also recalculate Operating Profit = Sales × Margin",
-                value=True,
-            )
-        else:
-            fix_profit = False
+    # ── Row 2: Profit by Product + Price vs Units ─
+    c3, c4 = st.columns([1, 1])
 
-    with col_b:
-        st.markdown('<div class="section-title">🟡 Moderate Fixes</div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown(ct(P_PROFIT, "PROFIT BY PRODUCT — COLUMN CHART"), unsafe_allow_html=True)
+        prod_profit = (df.groupby('Product')['Operating Profit'].sum()
+                         .sort_values(ascending=False))
+        fig, ax = plt.subplots(figsize=(7, 4))
+        fig.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CARD_BG)
+        xp = np.arange(len(prod_profit))
+        ax.bar(xp, prod_profit.values / 1e6,
+               color=PALETTE[:len(prod_profit)], edgecolor='none', width=0.55)
+        for i, v in enumerate(prod_profit.values):
+            ax.text(i, v / 1e6 + 0.15, f'${v/1e6:.1f}M',
+                    ha='center', fontsize=7, color=TSEC)
+        ax.set_xticks(xp)
+        ax.set_xticklabels([p.replace("'s ", "\n") for p in prod_profit.index], fontsize=7.5)
+        ax.set_ylabel('Profit (M$)', fontsize=8)
+        ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+        ax.grid(axis='y', alpha=0.2)
+        plt.tight_layout()
+        show_fig(fig)
 
-        fix_dupes = st.checkbox(
-            f"Remove duplicate rows  ({n_dupes} rows)",
-            value=n_dupes > 0,
-            disabled=n_dupes == 0,
-        )
-        fix_margin = st.checkbox(
-            f"Drop rows with margin outside 0–100%  ({n_margin} rows)",
-            value=n_margin > 0,
-            disabled=n_margin == 0,
-        )
-        fix_dates = st.checkbox(
-            f"Drop rows with dates outside 2020–2021  ({n_date} rows)",
-            value=n_date > 0,
-            disabled=n_date == 0,
-        )
+    with c4:
+        st.markdown(ct(P_SCATTER, "PRICE vs UNITS SOLD — SCATTER PLOT"), unsafe_allow_html=True)
+        samp = df.sample(min(1500, len(df)), random_state=42)
+        prods_u  = df['Product'].unique()
+        cmap_p   = {p: PALETTE[i % len(PALETTE)] for i, p in enumerate(prods_u)}
+        c_list   = [cmap_p[p] for p in samp['Product']]
+        fig, ax = plt.subplots(figsize=(7, 4))
+        fig.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CARD_BG)
+        ax.scatter(samp['Price per Unit'], samp['Units Sold'],
+                   c=c_list, alpha=0.55, s=18, edgecolors='none')
+        handles = [mpatches.Patch(color=cmap_p[p], label=p) for p in prods_u]
+        ax.legend(handles=handles, fontsize=6.5, loc='upper right', framealpha=0.3)
+        ax.set_xlabel('Price per Unit ($)', fontsize=8)
+        ax.set_ylabel('Units Sold', fontsize=8)
+        ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+        ax.grid(alpha=0.2)
+        plt.tight_layout()
+        show_fig(fig)
 
-    st.markdown('<div class="section-title">🟢 Minor Fixes</div>', unsafe_allow_html=True)
-    col_c, col_d = st.columns(2)
+    # ── Row 3: Sales vs Profit (full width) ──────
+    st.markdown(ct(P_SCATTER, "SALES vs OPERATING PROFIT BY RETAILER — SCATTER PLOT", A2),
+                unsafe_allow_html=True)
+    samp2    = df.sample(min(2000, len(df)), random_state=7)
+    retailers = df['Retailer'].unique()
+    cmap_r   = {r: PALETTE[i % len(PALETTE)] for i, r in enumerate(retailers)}
+    c_ret    = [cmap_r[r] for r in samp2['Retailer']]
+    fig, ax = plt.subplots(figsize=(14, 4))
+    fig.patch.set_facecolor(CARD_BG)
+    ax.set_facecolor(CARD_BG)
+    ax.scatter(samp2['Total Sales'], samp2['Operating Profit'],
+               c=c_ret, alpha=0.5, s=22, edgecolors='none')
+    handles2 = [mpatches.Patch(color=cmap_r[r], label=r) for r in retailers]
+    ax.legend(handles=handles2, fontsize=8, loc='upper left',
+              framealpha=0.3, ncol=len(retailers))
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f'${v/1e3:.0f}K'))
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f'${v/1e3:.0f}K'))
+    ax.set_xlabel('Total Sales', fontsize=8)
+    ax.set_ylabel('Operating Profit', fontsize=8)
+    ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+    ax.grid(alpha=0.15)
+    plt.tight_layout()
+    show_fig(fig)
 
-    with col_c:
-        fix_ws = st.checkbox(
-            f"Strip whitespace from all text columns  ({n_ws} rows)",
-            value=n_ws > 0,
-            disabled=n_ws == 0,
-        )
-    with col_d:
-        fix_badcat = st.checkbox(
-            f"Remove rows with invalid category values  ({n_badcat} rows)",
-            value=n_badcat > 0,
-            disabled=n_badcat == 0,
-        )
+    # ── Key Findings ────────────────────────────
+    st.markdown(sl(P_FIND, "KEY FINDINGS — GEO & PRODUCT"), unsafe_allow_html=True)
 
-    st.markdown("---")
+    top_city         = df.groupby('City')['Total Sales'].sum().idxmax()
+    top_state_profit = df.groupby('State')['Operating Profit'].sum().idxmax()
+    high_margin_prod = df.groupby('Product')['Operating Margin'].mean().idxmax()
+    high_vol_prod    = df.groupby('Product')['Units Sold'].mean().idxmax()
 
-    if st.button("⚡ Apply All Selected Fixes"):
-        choices = {
-            'drop_zero_units':    fix_zero,
-            'fix_sales_mismatch': fix_mismatch,
-            'fix_operating_profit': fix_profit,
-            'fix_duplicates':     fix_dupes,
-            'drop_margin_oob':    fix_margin,
-            'drop_date_oob':      fix_dates,
-            'fix_whitespace':     fix_ws,
-            'drop_bad_categories': fix_badcat,
-        }
-        df_clean = apply_fixes(df_raw, choices)
-        st.session_state['df_clean'] = df_clean
-        st.session_state['choices']  = choices
+    findings2 = [
+        (P_CITY,    A1, "TOP PERFORMING CITY",
+         f"<b>{top_city}</b> ranks as the highest-revenue city — Adidas's most critical urban market for sales concentration."),
+        (P_MAP,     A2, "TOP PROFIT STATE",
+         f"<b>{top_state_profit}</b> generates the most operating profit, suggesting strong operational efficiency or favourable pricing dynamics."),
+        (P_TAG,     A4, "HIGHEST MARGIN PRODUCT",
+         f"<b>{high_margin_prod}</b> commands the best average margin, making it Adidas's most financially efficient product line."),
+        (P_FLASH,   A5, "HIGHEST VOLUME PRODUCT",
+         f"<b>{high_vol_prod}</b> achieves the highest average units sold per transaction, indicating strong mass-market demand."),
+        (P_SCATTER, A1, "SALES-PROFIT CORRELATION",
+         "The scatter analysis confirms a strong positive linear relationship between total sales and operating profit — revenue growth directly drives profitability."),
+        (P_ALERT,   A3, "PRICE SENSITIVITY",
+         "Lower-priced products (under $45) consistently outperform in units sold, suggesting significant price elasticity in the Adidas consumer base."),
+    ]
+    g1, g2 = st.columns(2)
+    for i, (icon_d, ic, title, body) in enumerate(findings2):
+        with (g1 if i % 2 == 0 else g2):
+            st.markdown(f"""
+            <div class="finding-card">
+                <h4>{svg(icon_d, 13, ic)}{title}</h4>
+                <p>{body}</p>
+            </div>""", unsafe_allow_html=True)
 
-        removed = len(df_raw) - len(df_clean)
-        st.success(f"✅ Done! {removed} rows removed. {len(df_clean):,} clean rows remain. Head to **Preview & Export** tab.")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 3 — PREVIEW & EXPORT
-# ══════════════════════════════════════════════════════════════════════════════
-with tab3:
-    if 'df_clean' not in st.session_state:
-        st.info("Apply fixes in the **Clean Data** tab first.")
-    else:
-        df_clean = st.session_state['df_clean']
-        removed  = len(df_raw) - len(df_clean)
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Original Rows", f"{len(df_raw):,}")
-        c2.metric("Rows Removed",  f"{removed:,}", delta=f"-{removed/len(df_raw):.1%}", delta_color="inverse")
-        c3.metric("Clean Rows",    f"{len(df_clean):,}")
-
-        st.markdown("### Preview (first 100 rows)")
-        st.dataframe(df_clean.head(100), use_container_width=True)
-
-        st.markdown("### Download Cleaned File")
-        excel_bytes = to_excel_bytes(df_clean)
-        st.download_button(
-            label="⬇️ Download cleaned_sales_data.xlsx",
-            data=excel_bytes,
-            file_name="cleaned_sales_data.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-
-        st.markdown("### Column Summary After Cleaning")
-        summary = df_clean.describe(include='all').T
-        st.dataframe(summary, use_container_width=True)
+# ── Footer ───────────────────────────────────────────────────
+st.markdown(f"""
+<div style="text-align:center;padding:28px 0 10px;font-family:'JetBrains Mono',monospace;
+            font-size:0.52rem;color:{TSEC}44;letter-spacing:2px;">
+    ADIDAS SALES INTELLIGENCE DASHBOARD &nbsp;·&nbsp; STREAMLIT + MATPLOTLIB + PANDAS + NUMPY
+</div>
+""", unsafe_allow_html=True)

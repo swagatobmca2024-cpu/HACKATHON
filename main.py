@@ -454,48 +454,33 @@ def fmt_num(n):
 @st.cache_data
 def load_and_clean(file_bytes):
     """
-    Standard data cleaning pipeline — returns (clean_df, report_dict).
-
-    Steps
-    -----
-    1.  Load raw Excel
-    2.  Strip column-name whitespace & normalise to Title Case
-    3.  Snapshot raw shape for reporting
-    4.  Drop fully-empty rows/columns
-    5.  Strip leading/trailing whitespace from all string columns
-    6.  Standardise string values (Title Case) for categoricals
-    7.  Remove exact duplicate rows
-    8.  Parse & validate Invoice Date; drop rows with unparseable dates
-    9.  Coerce numeric columns; replace non-numeric with NaN
-    10. Impute remaining numeric NaNs with column median
-    11. Clip negative values in financial columns to 0
-    12. Validate Operating Margin is in [0, 1]; fix >1 values by /100
-    13. Derive engineered columns: YearMonth, Year, Month, Quarter
-    14. Reset index
+    Standard 13-step data cleaning pipeline.
+    Returns (clean_df, report_dict).
     """
-    # ── 1. Load ──────────────────────────────────────────────
+    # ── 1. Load raw Excel ─────────────────────────────────────
     raw = pd.read_excel(io.BytesIO(file_bytes))
     report = {}
 
+    # Snapshot BEFORE any changes
+    report['raw_rows'] = len(raw)
+    report['raw_cols'] = len(raw.columns)
+
     # ── 2. Normalise column names ─────────────────────────────
     raw.columns = raw.columns.str.strip()
-    # Map common alternate names to expected names
     col_aliases = {
-        'invoice date': 'Invoice Date',
-        'date':         'Invoice Date',
-        'retailerid':   'Retailer ID',
-        'retailer id':  'Retailer ID',
-        'price per unit':'Price per Unit',
-        'units sold':   'Units Sold',
-        'total sales':  'Total Sales',
+        'invoice date':     'Invoice Date',
+        'date':             'Invoice Date',
+        'retailerid':       'Retailer ID',
+        'retailer id':      'Retailer ID',
+        'price per unit':   'Price per Unit',
+        'units sold':       'Units Sold',
+        'total sales':      'Total Sales',
         'operating profit': 'Operating Profit',
-        'operating margin':  'Operating Margin',
-        'sales method': 'Sales Method',
+        'operating margin': 'Operating Margin',
+        'sales method':     'Sales Method',
     }
     raw.columns = [col_aliases.get(c.lower(), c) for c in raw.columns]
-    report['raw_rows']    = len(raw)
-    report['raw_cols']    = len(raw.columns)
-    report['columns']     = list(raw.columns)
+    report['columns_after_normalise'] = list(raw.columns)
 
     # ── 3. Drop fully-empty rows & columns ───────────────────
     before = len(raw)
@@ -515,20 +500,20 @@ def load_and_clean(file_bytes):
         if col in raw.columns:
             raw[col] = raw[col].str.title()
 
-    # ── 6. Remove duplicate rows ──────────────────────────────
+    # ── 6. Remove exact duplicate rows ───────────────────────
     before = len(raw)
     raw.drop_duplicates(inplace=True)
     report['duplicates_dropped'] = before - len(raw)
 
-    # ── 7. Parse Invoice Date ─────────────────────────────────
+    # ── 7. Parse & validate Invoice Date ─────────────────────
     before = len(raw)
     raw['Invoice Date'] = pd.to_datetime(raw['Invoice Date'], errors='coerce')
-    bad_dates = raw['Invoice Date'].isna().sum()
+    bad_dates = int(raw['Invoice Date'].isna().sum())
     raw.dropna(subset=['Invoice Date'], inplace=True)
     report['bad_dates_dropped'] = before - len(raw)
-    report['bad_dates_found']   = int(bad_dates)
+    report['bad_dates_found']   = bad_dates
 
-    # ── 8. Coerce numeric columns ─────────────────────────────
+    # ── 8. Coerce numeric columns; non-numeric → NaN ─────────
     num_cols = ['Price per Unit', 'Units Sold', 'Total Sales',
                 'Operating Profit', 'Operating Margin']
     num_cols = [c for c in num_cols if c in raw.columns]
@@ -538,7 +523,7 @@ def load_and_clean(file_bytes):
     nan_after = {c: int(raw[c].isna().sum()) for c in num_cols}
     report['coerced_to_nan'] = {c: nan_after[c] - nan_before[c] for c in num_cols}
 
-    # ── 9. Impute numeric NaNs with median ────────────────────
+    # ── 9. Impute remaining NaNs with column median ──────────
     imputed = {}
     for col in num_cols:
         n_nan = int(raw[col].isna().sum())
@@ -548,7 +533,7 @@ def load_and_clean(file_bytes):
             imputed[col] = {'count': n_nan, 'median': round(float(med), 4)}
     report['imputed'] = imputed
 
-    # ── 10. Clip negatives in financial columns ───────────────
+    # ── 10. Clip negatives in financial columns to 0 ─────────
     fin_cols = ['Total Sales', 'Operating Profit', 'Units Sold', 'Price per Unit']
     fin_cols = [c for c in fin_cols if c in raw.columns]
     neg_counts = {}
@@ -559,23 +544,27 @@ def load_and_clean(file_bytes):
             neg_counts[col] = n_neg
     report['negatives_clipped'] = neg_counts
 
-    # ── 11. Fix Operating Margin scale ───────────────────────
+    # ── 11. Fix Operating Margin scale (>1 means % not ratio) ─
     if 'Operating Margin' in raw.columns:
         over_one = int((raw['Operating Margin'] > 1).sum())
         if over_one > 0:
             raw.loc[raw['Operating Margin'] > 1, 'Operating Margin'] /= 100
         report['margin_rescaled'] = over_one
+    else:
+        report['margin_rescaled'] = 0
 
-    # ── 12. Engineer date columns ─────────────────────────────
+    # ── 12. Engineer date-derived columns ─────────────────────
     raw['YearMonth'] = raw['Invoice Date'].dt.to_period('M')
     raw['Year']      = raw['Invoice Date'].dt.year
     raw['Month']     = raw['Invoice Date'].dt.month
     raw['Quarter']   = raw['Invoice Date'].dt.to_period('Q').astype(str)
 
-    # ── 13. Final state ───────────────────────────────────────
+    # ── 13. Final state snapshot ──────────────────────────────
     raw.reset_index(drop=True, inplace=True)
     report['final_rows']       = len(raw)
-    report['final_cols']       = len(raw.columns)
+    report['final_data_cols']  = report['raw_cols']          # original column count
+    report['final_total_cols'] = len(raw.columns)            # incl. engineered
+    report['engineered_cols']  = report['final_total_cols'] - report['raw_cols']
     report['final_nulls']      = int(raw.isnull().sum().sum())
     report['date_range_start'] = str(raw['Invoice Date'].min().date())
     report['date_range_end']   = str(raw['Invoice Date'].max().date())
@@ -583,7 +572,7 @@ def load_and_clean(file_bytes):
     return raw, report
 
 # ─────────────────────────────────────────────
-#  SIDEBAR
+#  SIDEBAR  (single upload widget lives here)
 # ─────────────────────────────────────────────
 with st.sidebar:
     st.markdown(f"""
@@ -596,22 +585,23 @@ with st.sidebar:
                         color:{TSEC};letter-spacing:3px;">SALES INTELLIGENCE</div>
         </div>
     </div>
-    <hr style="border-color:{BDR};margin:8px 0 16px;">
+    <hr style="border-color:{BDR};margin:8px 0 14px;">
     <div style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:{TSEC};
                 letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">
         {svg(P_FILE, 12, TSEC)} Data Source
     </div>
     """, unsafe_allow_html=True)
 
+    # THE ONE AND ONLY file uploader
     uploaded_file = st.file_uploader(
-        "Upload Excel",
+        "Upload Excel file",
         type=["xlsx", "xls"],
         label_visibility="collapsed",
-        help="Upload your Adidas Sales Analysis Excel file"
+        help="Upload Adidas Sales Analysis Excel file (.xlsx / .xls)"
     )
 
     st.markdown(f"""
-    <hr style="border-color:{BDR};margin:16px 0 12px;">
+    <hr style="border-color:{BDR};margin:14px 0 12px;">
     <div style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:{TSEC};
                 letter-spacing:2px;text-transform:uppercase;margin-bottom:10px;">
         {svg(P_NAV, 12, TSEC)} Navigation
@@ -623,7 +613,7 @@ with st.sidebar:
 
     if uploaded_file:
         st.markdown(f"""
-        <hr style="border-color:{BDR};margin:16px 0 12px;">
+        <hr style="border-color:{BDR};margin:14px 0 12px;">
         <div style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:{TSEC};
                     letter-spacing:2px;text-transform:uppercase;margin-bottom:10px;">
             {svg(P_FIND, 12, TSEC)} Filters
@@ -639,39 +629,52 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-#  UPLOAD GATE
+#  UPLOAD GATE  (no widget here — uploader is in sidebar)
 # ─────────────────────────────────────────────
 if uploaded_file is None:
-    st.markdown(f'<div class="upload-wrap">{LOGO_LG}<h2>ADIDAS SALES INTELLIGENCE</h2><p>Upload your Sales Analysis Excel file (.xlsx) to launch the interactive dashboard and explore all KPIs, charts, and insights.</p></div>', unsafe_allow_html=True)
-
-    uc1, uc2, uc3 = st.columns([1, 2, 1])
-    with uc2:
-        st.markdown(f"""
-        <div style="display:flex;align-items:center;justify-content:center;gap:8px;
-                    margin-bottom:6px;">
-            {svg(P_UPLOAD, 18, A1)}
-            <span style="font-family:'Orbitron',sans-serif;font-size:0.68rem;
-                         color:{A1};letter-spacing:2px;">DROP OR BROWSE EXCEL FILE</span>
-        </div>
-        """, unsafe_allow_html=True)
-        center_file = st.file_uploader("Upload here", type=["xlsx","xls"],
-                                       label_visibility="collapsed", key="center_up")
-        if center_file:
-            uploaded_file = center_file
-
     st.markdown(f"""
-    <div style="text-align:center;margin-top:22px;">
-        <span class="upload-badge">{svg(P_FILE,12,TSEC)}Excel (.xlsx / .xls)</span>
-        <span class="upload-badge">{svg(P_CHART,12,TSEC)}9,000+ Records</span>
-        <span class="upload-badge">{svg(P_FLASH,12,TSEC)}Instant Analysis</span>
-        <span class="upload-badge">{svg(P_NAV,12,TSEC)}2-Page Dashboard</span>
-    </div>
-    <div style="text-align:center;margin-top:14px;font-family:'JetBrains Mono',monospace;
-                font-size:0.6rem;color:{TSEC}44;letter-spacing:1px;">
-        Expected columns: Retailer · Region · State · City · Product · Price per Unit ·
-        Units Sold · Total Sales · Operating Profit · Operating Margin · Sales Method · Invoice Date
+    <div class="upload-wrap">
+        {LOGO_LG}
+        <h2>ADIDAS SALES INTELLIGENCE</h2>
+        <p>Upload your Sales Analysis Excel file using the panel on the left to launch the full interactive dashboard.</p>
     </div>
     """, unsafe_allow_html=True)
+
+    # Arrow pointing to sidebar
+    _, mid, _ = st.columns([1, 2, 1])
+    with mid:
+        st.markdown(f"""
+        <div style="display:flex;flex-direction:column;align-items:center;gap:14px;
+                    background:{CARD_BG};border:1px dashed {A1}55;border-radius:14px;
+                    padding:28px 32px;margin-bottom:20px;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none"
+                 xmlns="http://www.w3.org/2000/svg">
+              <path d="{P_UPLOAD}" stroke="{A1}" stroke-width="1.6"
+                    stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <div style="font-family:'Orbitron',sans-serif;font-size:0.72rem;
+                        color:{A1};letter-spacing:2px;text-align:center;">
+                USE THE SIDEBAR UPLOADER
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;
+                        color:{TSEC};letter-spacing:1px;text-align:center;line-height:1.7;">
+                Click the <b style="color:{TPRI};">arrow &larr;</b> on the top-left to open the sidebar,
+                then drag &amp; drop or browse your <b style="color:{TPRI};">.xlsx</b> file.
+            </div>
+        </div>
+        <div style="text-align:center;margin-top:4px;">
+            <span class="upload-badge">{svg(P_FILE,12,TSEC)}Excel (.xlsx / .xls)</span>
+            <span class="upload-badge">{svg(P_CHART,12,TSEC)}9,000+ Records</span>
+            <span class="upload-badge">{svg(P_FLASH,12,TSEC)}Instant Analysis</span>
+            <span class="upload-badge">{svg(P_NAV,12,TSEC)}2-Page Dashboard</span>
+        </div>
+        <div style="text-align:center;margin-top:14px;font-family:'JetBrains Mono',monospace;
+                    font-size:0.6rem;color:{TSEC}44;letter-spacing:1px;">
+            Expected columns: Retailer · Region · State · City · Product ·
+            Price per Unit · Units Sold · Total Sales ·
+            Operating Profit · Operating Margin · Sales Method · Invoice Date
+        </div>
+        """, unsafe_allow_html=True)
     st.stop()
 
 # ─────────────────────────────────────────────
@@ -702,37 +705,57 @@ def step_html(num, label, detail, kind="ok"):
     </div>"""
 
 steps_html = ""
-steps_html += step_html(1,  "Load Excel",            f"{rpt['raw_rows']:,} rows × {rpt['raw_cols']} columns read from file")
-steps_html += step_html(2,  "Normalise Columns",      f"{rpt['final_cols']} columns after alias mapping & strip")
-steps_html += step_html(3,  "Drop Empty Rows/Cols",   f"{rpt['empty_rows_dropped']} fully-empty rows removed",
-                         "warn" if rpt['empty_rows_dropped'] > 0 else "ok")
-steps_html += step_html(4,  "Strip Whitespace",       "All string columns trimmed of leading/trailing spaces")
-steps_html += step_html(5,  "Title-Case Categoricals","Retailer, Region, State, City, Product, Sales Method standardised")
-steps_html += step_html(6,  "Remove Duplicates",      f"{rpt['duplicates_dropped']} exact duplicate rows dropped",
-                         "warn" if rpt['duplicates_dropped'] > 0 else "ok")
-steps_html += step_html(7,  "Parse Invoice Date",     f"{rpt['bad_dates_dropped']} unparseable dates dropped  |  "
-                         f"Range: {rpt['date_range_start']} → {rpt['date_range_end']}",
-                         "warn" if rpt['bad_dates_dropped'] > 0 else "ok")
+steps_html += step_html(1,  "Load Excel",
+    f"{rpt['raw_rows']:,} rows × {rpt['raw_cols']} columns read from file")
+steps_html += step_html(2,  "Normalise Column Names",
+    f"Whitespace stripped; common aliases remapped to standard names")
+steps_html += step_html(3,  "Drop Empty Rows / Cols",
+    f"{rpt['empty_rows_dropped']} fully-empty rows removed",
+    "warn" if rpt['empty_rows_dropped'] > 0 else "ok")
+steps_html += step_html(4,  "Strip String Whitespace",
+    "All object columns trimmed of leading/trailing spaces")
+steps_html += step_html(5,  "Title-Case Categoricals",
+    "Retailer, Region, State, City, Product, Sales Method standardised")
+steps_html += step_html(6,  "Remove Exact Duplicates",
+    f"{rpt['duplicates_dropped']} duplicate rows removed",
+    "warn" if rpt['duplicates_dropped'] > 0 else "ok")
+steps_html += step_html(7,  "Parse Invoice Date",
+    f"{rpt['bad_dates_dropped']} unparseable dates dropped  |  "
+    f"Range: {rpt['date_range_start']} to {rpt['date_range_end']}",
+    "warn" if rpt['bad_dates_dropped'] > 0 else "ok")
 coerced_total = sum(rpt['coerced_to_nan'].values())
-steps_html += step_html(8,  "Coerce Numerics",        f"{coerced_total} non-numeric values converted to NaN",
-                         "warn" if coerced_total > 0 else "ok")
+steps_html += step_html(8,  "Coerce Numerics",
+    f"{coerced_total} non-numeric values converted to NaN across "
+    f"{len(rpt['coerced_to_nan'])} numeric columns",
+    "warn" if coerced_total > 0 else "ok")
 imp_total = sum(v['count'] for v in rpt['imputed'].values())
-imp_detail = (", ".join(f"{c}={v['count']}" for c, v in rpt['imputed'].items())
-              if rpt['imputed'] else "None required")
-steps_html += step_html(9,  "Impute NaN with Median", f"{imp_total} values filled  |  {imp_detail}",
-                         "warn" if imp_total > 0 else "ok")
+imp_detail = (", ".join(f"{c}: {v['count']} filled (median={v['median']})"
+              for c, v in rpt['imputed'].items()) if rpt['imputed'] else "No NaNs found")
+steps_html += step_html(9,  "Impute NaN with Median",
+    f"{imp_total} values imputed  |  {imp_detail}",
+    "warn" if imp_total > 0 else "ok")
 neg_total = sum(rpt['negatives_clipped'].values())
-neg_detail = (", ".join(f"{c}={v}" for c, v in rpt['negatives_clipped'].items())
+neg_detail = (", ".join(f"{c}: {v}" for c, v in rpt['negatives_clipped'].items())
               if rpt['negatives_clipped'] else "None found")
-steps_html += step_html(10, "Clip Negative Values",   f"{neg_total} negatives in financial cols clipped to 0  |  {neg_detail}",
-                         "warn" if neg_total > 0 else "ok")
+steps_html += step_html(10, "Clip Negative Values",
+    f"{neg_total} negative values in financial columns clipped to 0  |  {neg_detail}",
+    "warn" if neg_total > 0 else "ok")
 margin_fixed = rpt.get('margin_rescaled', 0)
-steps_html += step_html(11, "Fix Margin Scale",       f"{margin_fixed} Operating Margin values >1 rescaled ÷100",
-                         "warn" if margin_fixed > 0 else "ok")
-steps_html += step_html(12, "Engineer Date Columns",  "YearMonth, Year, Month, Quarter derived from Invoice Date")
-steps_html += step_html(13, "Final Dataset",          f"{rpt['final_rows']:,} rows × {rpt['final_cols']} cols  |  {rpt['final_nulls']} remaining nulls")
+steps_html += step_html(11, "Fix Margin Scale",
+    f"{margin_fixed} Operating Margin values >1 rescaled by dividing by 100",
+    "warn" if margin_fixed > 0 else "ok")
+steps_html += step_html(12, "Engineer Date Columns",
+    f"Derived: YearMonth, Year, Month, Quarter from Invoice Date")
+steps_html += step_html(13, "Final Dataset",
+    f"{rpt['final_rows']:,} rows  |  "
+    f"{rpt['raw_cols']} original + {rpt['engineered_cols']} engineered = "
+    f"{rpt['final_total_cols']} total columns  |  {rpt['final_nulls']} nulls remaining")
 
-with st.expander(f"  Data Cleaning Report  —  {rpt['raw_rows']:,} raw rows  →  {rpt['final_rows']:,} clean rows  ({rows_removed} removed)", expanded=False):
+with st.expander(
+    f"Data Cleaning Report  —  {rpt['raw_rows']:,} raw rows  →  "
+    f"{rpt['final_rows']:,} clean rows  ({rows_removed} removed)",
+    expanded=False
+):
     st.markdown(f"""
     <div class="clean-panel">
         <div class="clean-panel-title">
@@ -752,8 +775,8 @@ with st.expander(f"  Data Cleaning Report  —  {rpt['raw_rows']:,} raw rows  �
                 <div class="clean-stat-lbl">Rows Removed</div>
             </div>
             <div class="clean-stat">
-                <div class="clean-stat-val">{rpt['final_nulls']}</div>
-                <div class="clean-stat-lbl">Remaining Nulls</div>
+                <div class="clean-stat-val">{rpt['raw_cols']} + {rpt['engineered_cols']}</div>
+                <div class="clean-stat-lbl">Cols (orig + derived)</div>
             </div>
         </div>
         {steps_html}

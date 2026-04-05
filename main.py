@@ -1,1118 +1,1192 @@
-"""
-WebScraper Pro — Advanced Streamlit Web Scraper
-================================================
-Deploy-ready for Streamlit Cloud.
-All icons are inline SVG — zero emoji dependency.
-"""
-
-from __future__ import annotations
-
-import io
+import streamlit as st
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
 import json
 import re
 import time
+import csv
+import io
+import xml.etree.ElementTree as ET
+from urllib.parse import urljoin, urlparse, urlencode
+from urllib.robotparser import RobotFileParser
+from collections import defaultdict
 from datetime import datetime
-from typing import Optional
-from urllib.parse import urljoin, urlparse
+import hashlib
+import trafilatura
+from fake_useragent import UserAgent
+import lxml
 
-import pandas as pd
-import requests
-import streamlit as st
-from bs4 import BeautifulSoup
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  PAGE CONFIG  (must be first Streamlit call)
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="WebScraper Pro",
-    page_icon="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕸</text></svg>",
+    page_title="WebHarvest Pro",
+    page_icon=None,
     layout="wide",
     initial_sidebar_state="expanded",
-    menu_items={
-        "Get Help": "https://github.com",
-        "Report a bug": None,
-        "About": "WebScraper Pro — Advanced Streamlit Web Scraper",
-    },
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  INLINE SVG ICON LIBRARY
-# ─────────────────────────────────────────────────────────────────────────────
-def svg(key: str, size: int = 18, color: str = "currentColor") -> str:
-    """Return an inline SVG string for the given icon key."""
-    icons = {
-        "spider": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M12 12v10"/><path d="M8 14l-4 3"/><path d="M16 14l4 3"/><path d="M9 12l-5 1"/><path d="M15 12l5 1"/><path d="M8.5 6.5L4 4"/><path d="M15.5 6.5L20 4"/></svg>""",
-        "link": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>""",
-        "image": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>""",
-        "heading": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h12"/><path d="M6 4v16"/><path d="M18 4v16"/></svg>""",
-        "table": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>""",
-        "target": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>""",
-        "mail": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22,4 12,13 2,4"/></svg>""",
-        "text": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>""",
-        "zap": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>""",
-        "search": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>""",
-        "download": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>""",
-        "globe": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>""",
-        "settings": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>""",
-        "activity": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>""",
-        "check": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>""",
-        "alert": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><triangle points="10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>""",
-        "copy": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>""",
-        "filter": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>""",
-        "layers": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>""",
-        "info": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>""",
-        "cpu": f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>""",
-    }
-    return icons.get(key, f"""<svg width="{size}" height="{size}" viewBox="0 0 24 24"/>""")
+# ─────────────────────────────────────────────
+# SVG ICONS (no emojis)
+# ─────────────────────────────────────────────
+ICON_SPIDER = """<svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="14" cy="12" r="5" fill="#00D4AA" opacity="0.9"/>
+<circle cx="14" cy="12" r="2.5" fill="#001a12"/>
+<line x1="14" y1="7" x2="7" y2="3" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="14" y1="7" x2="21" y2="3" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="9" y1="11" x2="2" y2="9" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="19" y1="11" x2="26" y2="9" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="9" y1="14" x2="2" y2="16" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="19" y1="14" x2="26" y2="16" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="12" y1="17" x2="10" y2="24" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
+<line x1="16" y1="17" x2="18" y2="24" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
+</svg>"""
 
+ICON_LINK = """<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M7.5 10.5C7.83 10.99 8.26 11.4 8.76 11.7C9.26 12 9.82 12.16 10.39 12.16C10.96 12.16 11.52 12 12.02 11.7L14.52 10.2C15.43 9.56 16 8.52 16 7.39C16 5.52 14.48 4 12.61 4C11.98 4 11.39 4.18 10.89 4.5L9.5 5.34" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M10.5 7.5C10.17 7.01 9.74 6.6 9.24 6.3C8.74 6 8.18 5.84 7.61 5.84C7.04 5.84 6.48 6 5.98 6.3L3.48 7.8C2.57 8.44 2 9.48 2 10.61C2 12.48 3.52 14 5.39 14C6.02 14 6.61 13.82 7.11 13.5L8.5 12.66" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>"""
 
-def icon_html(key: str, size: int = 16, color: str = "#a78bfa") -> str:
-    return f'<span style="display:inline-flex;align-items:center;vertical-align:middle;">{svg(key, size, color)}</span>'
+ICON_TABLE = """<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="2" y="2" width="14" height="14" rx="2" stroke="#00D4AA" stroke-width="1.5"/>
+<line x1="2" y1="6.5" x2="16" y2="6.5" stroke="#00D4AA" stroke-width="1.5"/>
+<line x1="7" y1="6.5" x2="7" y2="16" stroke="#00D4AA" stroke-width="1.2"/>
+<line x1="11.5" y1="6.5" x2="11.5" y2="16" stroke="#00D4AA" stroke-width="1.2"/>
+</svg>"""
 
+ICON_IMAGE = """<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="2" y="3" width="14" height="12" rx="2" stroke="#00D4AA" stroke-width="1.5"/>
+<circle cx="6.5" cy="7.5" r="1.5" fill="#00D4AA"/>
+<path d="M2 12L6 8.5L9 11.5L12 9L16 13" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>"""
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  GLOBAL CSS
-# ─────────────────────────────────────────────────────────────────────────────
+ICON_META = """<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="9" cy="9" r="7" stroke="#00D4AA" stroke-width="1.5"/>
+<line x1="9" y1="8" x2="9" y2="13" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
+<circle cx="9" cy="5.5" r="1" fill="#00D4AA"/>
+</svg>"""
+
+ICON_CRAWL = """<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="9" cy="9" r="7" stroke="#00D4AA" stroke-width="1.5"/>
+<path d="M9 2C9 2 12 5.5 12 9C12 12.5 9 16 9 16" stroke="#00D4AA" stroke-width="1.2" stroke-linecap="round"/>
+<path d="M9 2C9 2 6 5.5 6 9C6 12.5 9 16 9 16" stroke="#00D4AA" stroke-width="1.2" stroke-linecap="round"/>
+<line x1="2" y1="9" x2="16" y2="9" stroke="#00D4AA" stroke-width="1.2"/>
+</svg>"""
+
+ICON_EXPORT = """<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M9 2V11M9 11L6 8M9 11L12 8" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M3 13V14C3 15.1 3.9 16 5 16H13C14.1 16 15 15.1 15 14V13" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
+</svg>"""
+
+ICON_SEARCH = """<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="8" cy="8" r="5.5" stroke="#00D4AA" stroke-width="1.5"/>
+<line x1="12.5" y1="12.5" x2="16" y2="16" stroke="#00D4AA" stroke-width="2" stroke-linecap="round"/>
+</svg>"""
+
+ICON_SETTINGS = """<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="9" cy="9" r="2.5" stroke="#00D4AA" stroke-width="1.5"/>
+<path d="M9 1.5V3M9 15V16.5M1.5 9H3M15 9H16.5M3.2 3.2L4.3 4.3M13.7 13.7L14.8 14.8M3.2 14.8L4.3 13.7M13.7 4.3L14.8 3.2" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
+</svg>"""
+
+# ─────────────────────────────────────────────
+# CSS STYLING
+# ─────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Sora:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
 
-/* ── tokens ───────────────────────────────────────── */
 :root {
-  --bg:       #080810;
-  --s1:       #0f0f1a;
-  --s2:       #14141f;
-  --s3:       #1a1a2e;
-  --border:   #1e1e35;
-  --p:        #6d28d9;
-  --p2:       #8b5cf6;
-  --cyan:     #06b6d4;
-  --amber:    #f59e0b;
-  --green:    #10b981;
-  --red:      #ef4444;
-  --txt:      #e2e8f0;
-  --muted:    #475569;
-  --mono:     'JetBrains Mono', monospace;
-  --sans:     'Sora', sans-serif;
+    --bg: #060d0a;
+    --surface: #0d1f18;
+    --surface2: #112b20;
+    --accent: #00D4AA;
+    --accent2: #00ff88;
+    --text: #d4ead6;
+    --muted: #5a7a65;
+    --border: #1a3828;
+    --danger: #ff4d6d;
+    --warn: #ffb347;
 }
 
-/* ── base ─────────────────────────────────────────── */
-html, body, [class*="css"] { font-family: var(--sans); background: var(--bg) !important; color: var(--txt); }
-.stApp { background: var(--bg); }
-.block-container { padding-top: 1.2rem !important; max-width: 1300px; }
-
-/* ── scrollbars ───────────────────────────────────── */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--s1); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: var(--p); }
-
-/* ── hero ─────────────────────────────────────────── */
-.hero {
-  background: linear-gradient(135deg, var(--s1) 0%, #0d0d22 60%, #080d1a 100%);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 2.2rem 2.8rem;
-  margin-bottom: 1.6rem;
-  position: relative;
-  overflow: hidden;
-}
-.hero::before {
-  content: '';
-  position: absolute; inset: 0;
-  background:
-    radial-gradient(ellipse 60% 80% at 15% 50%, rgba(109,40,217,.14) 0%, transparent 70%),
-    radial-gradient(ellipse 40% 60% at 80% 30%, rgba(6,182,212,.08) 0%, transparent 70%);
-  pointer-events: none;
-}
-.hero-grid {
-  position: absolute; inset: 0; opacity: .04;
-  background-image:
-    linear-gradient(var(--cyan) 1px, transparent 1px),
-    linear-gradient(90deg, var(--cyan) 1px, transparent 1px);
-  background-size: 40px 40px;
-}
-.hero-title {
-  font-family: var(--mono); font-size: 2.1rem; font-weight: 700;
-  background: linear-gradient(100deg, #8b5cf6 0%, #06b6d4 60%, #f59e0b 100%);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text; margin: 0; line-height: 1.2;
-}
-.hero-sub { color: var(--muted); font-size: .88rem; margin-top: .35rem; font-weight: 300; letter-spacing: .02em; }
-.hero-badge {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: rgba(109,40,217,.12); border: 1px solid rgba(109,40,217,.3);
-  border-radius: 999px; padding: 4px 12px;
-  font-family: var(--mono); font-size: .7rem; color: #a78bfa;
-  margin-top: .8rem;
+html, body, .stApp {
+    background-color: var(--bg) !important;
+    color: var(--text) !important;
+    font-family: 'DM Sans', sans-serif;
 }
 
-/* ── sidebar ──────────────────────────────────────── */
-section[data-testid="stSidebar"] {
-  background: var(--s1) !important;
-  border-right: 1px solid var(--border);
-}
-section[data-testid="stSidebar"] label,
-section[data-testid="stSidebar"] p,
-section[data-testid="stSidebar"] span,
-section[data-testid="stSidebar"] div { color: var(--txt) !important; }
-.sidebar-section-title {
-  font-family: var(--mono); font-size: .7rem; letter-spacing: .12em;
-  text-transform: uppercase; color: var(--muted); margin: 1rem 0 .5rem;
-}
-.sidebar-mode-item {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 10px; border-radius: 8px;
-  font-size: .82rem; color: var(--muted);
-  margin-bottom: 2px; transition: background .15s, color .15s;
-}
-.sidebar-mode-item:hover { background: var(--s3); color: var(--txt); }
+/* Hide default streamlit chrome */
+#MainMenu, footer, header { visibility: hidden; }
+.block-container { padding: 1.5rem 2rem 3rem 2rem !important; max-width: 1400px; }
 
-/* ── inputs ───────────────────────────────────────── */
+/* ── HEADER ── */
+.wh-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 1.4rem 0 1rem 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1.6rem;
+}
+.wh-header h1 {
+    font-family: 'Space Mono', monospace;
+    font-size: 1.7rem;
+    color: var(--accent);
+    margin: 0;
+    letter-spacing: -0.5px;
+}
+.wh-header span.sub {
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-left: 6px;
+}
+
+/* ── CARDS ── */
+.wh-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem 1.4rem;
+    margin-bottom: 1rem;
+}
+.wh-card h4 {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.82rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin: 0 0 0.8rem 0;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+/* ── STAT PILLS ── */
+.stat-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 1rem; }
+.stat-pill {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.55rem 1rem;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 120px;
+}
+.stat-pill .val { font-size: 1.3rem; color: var(--accent2); font-weight: 700; }
+.stat-pill .lbl { color: var(--muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* ── BADGE ── */
+.badge {
+    display: inline-block;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.68rem;
+    padding: 2px 7px;
+    border-radius: 3px;
+    font-weight: 700;
+}
+.badge-ok   { background: #003d2a; color: var(--accent2); border: 1px solid #00a060; }
+.badge-warn { background: #3d2a00; color: var(--warn);    border: 1px solid #a06000; }
+.badge-err  { background: #3d0010; color: var(--danger);  border: 1px solid #a00030; }
+
+/* ── INPUTS ── */
 .stTextInput > div > div > input,
-.stTextArea > div > div > textarea {
-  background: var(--s2) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 10px !important;
-  color: var(--txt) !important;
-  font-family: var(--mono) !important;
-  font-size: .85rem !important;
-  padding: .55rem .9rem !important;
-  transition: border-color .2s, box-shadow .2s;
+.stTextArea > div > div > textarea,
+.stSelectbox > div > div > div,
+.stMultiSelect > div > div > div {
+    background: var(--surface2) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text) !important;
+    border-radius: 6px !important;
+    font-family: 'DM Sans', sans-serif !important;
 }
 .stTextInput > div > div > input:focus,
 .stTextArea > div > div > textarea:focus {
-  border-color: var(--p2) !important;
-  box-shadow: 0 0 0 3px rgba(139,92,246,.15) !important;
-}
-.stSelectbox > div > div {
-  background: var(--s2) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 10px !important;
-  color: var(--txt) !important;
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 2px rgba(0,212,170,0.15) !important;
 }
 
-/* ── buttons ──────────────────────────────────────── */
+/* ── BUTTON ── */
 .stButton > button {
-  background: linear-gradient(135deg, var(--p) 0%, #4c1d95 100%) !important;
-  color: #fff !important; border: none !important;
-  border-radius: 10px !important;
-  font-family: var(--mono) !important;
-  font-size: .82rem !important; font-weight: 600 !important;
-  padding: .65rem 1.8rem !important; letter-spacing: .04em;
-  transition: transform .15s, box-shadow .15s !important;
+    background: var(--accent) !important;
+    color: #000 !important;
+    font-family: 'Space Mono', monospace !important;
+    font-size: 0.82rem !important;
+    font-weight: 700 !important;
+    border: none !important;
+    border-radius: 6px !important;
+    padding: 0.55rem 1.4rem !important;
+    letter-spacing: 0.5px;
+    transition: all 0.15s ease;
 }
 .stButton > button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(109,40,217,.45) !important;
+    background: var(--accent2) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(0,212,170,0.3) !important;
 }
-.stButton > button:active { transform: translateY(0); }
-.stDownloadButton > button {
-  background: var(--s3) !important;
-  border: 1px solid var(--border) !important;
-  color: var(--cyan) !important;
-  border-radius: 8px !important;
-  font-family: var(--mono) !important; font-size: .76rem !important;
-}
-.stDownloadButton > button:hover {
-  border-color: var(--cyan) !important;
-  box-shadow: 0 0 10px rgba(6,182,212,.2) !important;
+.stButton > button[kind="secondary"] {
+    background: var(--surface2) !important;
+    color: var(--accent) !important;
+    border: 1px solid var(--border) !important;
 }
 
-/* ── tabs ─────────────────────────────────────────── */
+/* ── TABS ── */
 .stTabs [data-baseweb="tab-list"] {
-  background: var(--s2) !important;
-  border-radius: 12px !important; padding: 4px !important; gap: 3px !important;
-  border: 1px solid var(--border);
+    background: var(--surface) !important;
+    border-radius: 8px 8px 0 0;
+    border-bottom: 1px solid var(--border);
+    gap: 0;
+    padding: 0 0.5rem;
 }
 .stTabs [data-baseweb="tab"] {
-  background: transparent !important;
-  color: var(--muted) !important;
-  border-radius: 8px !important;
-  font-family: var(--mono) !important; font-size: .75rem !important;
-  padding: .4rem .9rem !important;
+    background: transparent !important;
+    color: var(--muted) !important;
+    font-family: 'Space Mono', monospace !important;
+    font-size: 0.75rem !important;
+    border-radius: 0 !important;
+    border-bottom: 2px solid transparent !important;
+    padding: 0.7rem 1rem !important;
 }
 .stTabs [aria-selected="true"] {
-  background: var(--p) !important; color: #fff !important;
+    color: var(--accent) !important;
+    border-bottom: 2px solid var(--accent) !important;
+    background: transparent !important;
+}
+.stTabs [data-baseweb="tab-panel"] {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-top: none !important;
+    border-radius: 0 0 8px 8px;
+    padding: 1.2rem;
 }
 
-/* ── expanders ────────────────────────────────────── */
+/* ── SIDEBAR ── */
+section[data-testid="stSidebar"] {
+    background: var(--surface) !important;
+    border-right: 1px solid var(--border) !important;
+}
+section[data-testid="stSidebar"] .stSelectbox label,
+section[data-testid="stSidebar"] .stSlider label,
+section[data-testid="stSidebar"] .stCheckbox label,
+section[data-testid="stSidebar"] .stNumberInput label,
+section[data-testid="stSidebar"] .stTextInput label {
+    color: var(--text) !important;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.85rem;
+}
+
+/* ── DATAFRAME ── */
+.stDataFrame { border: 1px solid var(--border) !important; border-radius: 6px; overflow: hidden; }
+.stDataFrame thead th {
+    background: var(--surface2) !important;
+    color: var(--accent) !important;
+    font-family: 'Space Mono', monospace !important;
+    font-size: 0.75rem !important;
+}
+
+/* ── LOG BOX ── */
+.log-box {
+    background: #030a06;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.9rem 1rem;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--accent);
+    max-height: 220px;
+    overflow-y: auto;
+    line-height: 1.7;
+}
+.log-box .log-ok   { color: var(--accent2); }
+.log-box .log-warn { color: var(--warn); }
+.log-box .log-err  { color: var(--danger); }
+.log-box .log-info { color: var(--muted); }
+
+/* ── EXPANDER ── */
 .streamlit-expanderHeader {
-  background: var(--s2) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 10px !important;
-  font-family: var(--mono) !important; font-size: .8rem !important;
-  color: var(--txt) !important;
+    background: var(--surface2) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 6px !important;
+    color: var(--text) !important;
+    font-family: 'DM Sans', sans-serif !important;
 }
 .streamlit-expanderContent {
-  background: var(--s1) !important;
-  border: 1px solid var(--border) !important;
-  border-top: none !important; border-radius: 0 0 10px 10px !important;
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-top: none !important;
 }
 
-/* ── metric card ──────────────────────────────────── */
-.metric-card {
-  background: var(--s2);
-  border: 1px solid var(--border);
-  border-radius: 14px; padding: 1.3rem 1rem;
-  text-align: center; position: relative; overflow: hidden;
-  transition: border-color .2s, transform .2s;
-}
-.metric-card:hover { border-color: var(--p2); transform: translateY(-2px); }
-.metric-card::before {
-  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-  background: linear-gradient(90deg, var(--p), var(--cyan));
-}
-.metric-val {
-  font-family: var(--mono); font-size: 2rem; font-weight: 700;
-  background: linear-gradient(135deg, #a78bfa, var(--cyan));
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-.metric-lbl {
-  font-size: .72rem; color: var(--muted);
-  text-transform: uppercase; letter-spacing: .1em; margin-top: 2px;
-}
-.metric-icon { margin-bottom: 6px; opacity: .6; }
+/* ── PROGRESS ── */
+.stProgress > div > div { background: var(--accent) !important; }
 
-/* ── result rows ──────────────────────────────────── */
-.result-row {
-  background: var(--s2);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--p);
-  border-radius: 10px; padding: .9rem 1.1rem;
-  margin: .4rem 0; font-size: .84rem; line-height: 1.5;
-  transition: border-left-color .2s, background .2s;
-}
-.result-row:hover { border-left-color: var(--cyan); background: var(--s3); }
-.result-row a { color: var(--cyan); text-decoration: none; }
-.result-row a:hover { text-decoration: underline; }
-.tag {
-  display: inline-flex; align-items: center; gap: 4px;
-  background: rgba(109,40,217,.15);
-  border: 1px solid rgba(109,40,217,.3);
-  color: #a78bfa; border-radius: 6px;
-  padding: 2px 9px; font-family: var(--mono); font-size: .7rem;
-  margin-right: 6px;
-}
-.tag-cyan { background: rgba(6,182,212,.1); border-color: rgba(6,182,212,.3); color: var(--cyan); }
-.tag-amber { background: rgba(245,158,11,.1); border-color: rgba(245,158,11,.3); color: var(--amber); }
-.tag-green { background: rgba(16,185,129,.1); border-color: rgba(16,185,129,.3); color: var(--green); }
-.tag-red   { background: rgba(239,68,68,.1);  border-color: rgba(239,68,68,.3);  color: var(--red);   }
+/* ── DIVIDER ── */
+hr { border-color: var(--border) !important; }
 
-/* ── log terminal ─────────────────────────────────── */
-.terminal {
-  background: #03030a;
-  border: 1px solid var(--border);
-  border-radius: 12px; padding: 1rem 1.2rem;
-  font-family: var(--mono); font-size: .76rem;
-  color: var(--green); max-height: 180px; overflow-y: auto;
-  line-height: 1.8; letter-spacing: .01em;
-}
-.terminal .ts { color: var(--muted); }
-.terminal .ok { color: var(--green); }
-.terminal .err { color: var(--red); }
-.terminal .info { color: var(--cyan); }
+/* ── ALERTS ── */
+.stAlert { border-radius: 6px !important; }
 
-/* ── page meta block ──────────────────────────────── */
-.meta-block {
-  background: var(--s2); border: 1px solid var(--border);
-  border-radius: 14px; padding: 1.2rem 1.4rem; margin-bottom: 1rem;
-}
-.meta-key {
-  font-family: var(--mono); font-size: .72rem;
-  color: var(--muted); text-transform: uppercase; letter-spacing: .08em;
-}
-.meta-val { font-size: .88rem; color: var(--txt); margin-top: 2px; word-break: break-all; }
-
-/* ── section header ───────────────────────────────── */
-.sec-header {
-  display: flex; align-items: center; gap: 10px;
-  font-family: var(--mono); font-size: .9rem; font-weight: 600;
-  color: #a78bfa; margin: 1.2rem 0 .7rem;
-  padding-bottom: .5rem; border-bottom: 1px solid var(--border);
+/* ── MULTISELECT TAGS ── */
+.stMultiSelect span[data-baseweb="tag"] {
+    background: var(--surface2) !important;
+    color: var(--accent) !important;
+    border: 1px solid var(--border) !important;
 }
 
-/* ── empty state ──────────────────────────────────── */
-.empty-state {
-  text-align: center; padding: 3.5rem 1rem;
-  background: var(--s1); border: 1px dashed var(--border);
-  border-radius: 16px; margin: 1rem 0;
+/* ── NUMBER INPUT ── */
+.stNumberInput input {
+    background: var(--surface2) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--border) !important;
 }
-.empty-title { font-family: var(--mono); font-size: 1.1rem; color: #a78bfa; margin: 1rem 0 .4rem; }
-.empty-sub { color: var(--muted); font-size: .85rem; max-width: 420px; margin: 0 auto; line-height: 1.6; }
 
-/* ── dataframe override ───────────────────────────── */
-.stDataFrame { border-radius: 10px !important; overflow: hidden; }
-.stDataFrame thead th { background: var(--s3) !important; font-family: var(--mono) !important; }
-
-/* ── progress / spinner ───────────────────────────── */
-.stProgress > div > div { background: var(--p) !important; }
-.stSpinner > div { border-top-color: var(--p2) !important; }
-
-/* ── divider ──────────────────────────────────────── */
-hr { border-color: var(--border) !important; margin: 1.5rem 0 !important; }
-
-/* ── welcome grid cards ───────────────────────────── */
-.mode-card {
-  background: var(--s2); border: 1px solid var(--border);
-  border-radius: 14px; padding: 1.1rem 1.2rem; height: 120px;
-  display: flex; flex-direction: column; justify-content: center;
-  transition: border-color .2s, transform .2s;
+/* ── SLIDER ── */
+.stSlider [data-baseweb="slider"] div[role="slider"] {
+    background: var(--accent) !important;
+    border-color: var(--accent) !important;
 }
-.mode-card:hover { border-color: var(--p2); transform: translateY(-3px); }
-.mode-card-icon { margin-bottom: 8px; }
-.mode-card-name {
-  font-family: var(--mono); font-size: .78rem; color: #a78bfa; font-weight: 600;
+
+/* ── CHECKBOX ── */
+.stCheckbox > label > div:first-child {
+    border-color: var(--accent) !important;
 }
-.mode-card-desc { font-size: .73rem; color: var(--muted); margin-top: 3px; line-height: 1.4; }
 
-/* ── checkbox ─────────────────────────────────────── */
-.stCheckbox > label { color: var(--muted) !important; font-size: .82rem !important; }
+/* ── TOOLTIP ── */
+.tooltip-wrap { position: relative; display: inline-block; }
+.tooltip-wrap .tooltip-text {
+    visibility: hidden;
+    width: 200px;
+    background: var(--surface2);
+    color: var(--text);
+    font-size: 0.72rem;
+    text-align: center;
+    border-radius: 5px;
+    padding: 5px 8px;
+    position: absolute;
+    z-index: 1;
+    bottom: 125%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 1px solid var(--border);
+}
+.tooltip-wrap:hover .tooltip-text { visibility: visible; }
 
-/* ── slider ───────────────────────────────────────── */
-.stSlider > div > div > div { background: var(--p) !important; }
-
-/* ── alerts ───────────────────────────────────────── */
-.stAlert { border-radius: 10px !important; }
+/* ── RESULT ITEM ── */
+.result-item {
+    padding: 0.65rem 0.9rem;
+    border-left: 3px solid var(--accent);
+    background: var(--surface2);
+    border-radius: 0 5px 5px 0;
+    margin-bottom: 0.5rem;
+    font-size: 0.84rem;
+}
+.result-item a { color: var(--accent); text-decoration: none; font-family: 'Space Mono', monospace; font-size: 0.75rem; }
+.result-item a:hover { color: var(--accent2); }
 </style>
 """, unsafe_allow_html=True)
 
+# ─────────────────────────────────────────────
+# SESSION STATE
+# ─────────────────────────────────────────────
+if "results" not in st.session_state:
+    st.session_state.results = {}
+if "logs" not in st.session_state:
+    st.session_state.logs = []
+if "history" not in st.session_state:
+    st.session_state.history = []
+if "crawl_visited" not in st.session_state:
+    st.session_state.crawl_visited = set()
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  SESSION STATE INIT
-# ─────────────────────────────────────────────────────────────────────────────
-for key, default in {
-    "scrape_log": [],
-    "last_result": None,
-    "last_url": "",
-    "last_mode": "",
-    "request_count": 0,
-    "total_items": 0,
-}.items():
-    if key not in st.session_state:
-        st.session_state[key] = default
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  CONSTANTS & HELPERS
-# ─────────────────────────────────────────────────────────────────────────────
-REQUEST_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/122.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Encoding": "gzip, deflate, br",
-    "DNT": "1",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-}
-
-EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
-
-
-def log(msg: str, kind: str = "ok"):
+# ─────────────────────────────────────────────
+# UTILITIES
+# ─────────────────────────────────────────────
+def log(msg: str, level: str = "ok"):
     ts = datetime.now().strftime("%H:%M:%S")
-    st.session_state.scrape_log.append(
-        f'<span class="ts">[{ts}]</span> <span class="{kind}">{msg}</span>'
-    )
+    st.session_state.logs.append({"ts": ts, "msg": msg, "level": level})
 
+def get_session():
+    ua = UserAgent()
+    s = requests.Session()
+    s.headers.update({
+        "User-Agent": ua.random,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+    })
+    return s
 
-def to_csv(df: pd.DataFrame) -> bytes:
-    return df.to_csv(index=False).encode("utf-8")
-
-
-def to_json(data) -> bytes:
-    return json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
-
-
-def metric_card(col, icon_key: str, value, label: str, color: str = "#06b6d4"):
-    col.markdown(
-        f"""<div class="metric-card">
-          <div class="metric-icon">{svg(icon_key, 22, color)}</div>
-          <div class="metric-val">{value}</div>
-          <div class="metric-lbl">{label}</div>
-        </div>""",
-        unsafe_allow_html=True,
-    )
-
-
-def section_header(icon_key: str, title: str):
-    st.markdown(
-        f"""<div class="sec-header">
-          {svg(icon_key, 18, "#8b5cf6")}&nbsp;{title}
-        </div>""",
-        unsafe_allow_html=True,
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  SCRAPING FUNCTIONS
-# ─────────────────────────────────────────────────────────────────────────────
-
-@st.cache_data(ttl=120, show_spinner=False)
-def fetch_page(url: str, timeout: int) -> tuple[Optional[str], int, str]:
-    """Cached page fetch — returns (html, status_code, error)."""
+def check_robots(url: str, ua: str = "*") -> bool:
+    parsed = urlparse(url)
+    robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
     try:
-        r = requests.get(url, headers=REQUEST_HEADERS, timeout=timeout)
-        return r.text, r.status_code, ""
-    except requests.exceptions.ConnectionError:
-        return None, 0, "Connection refused or DNS failure."
-    except requests.exceptions.Timeout:
-        return None, 0, f"Timed out after {timeout}s."
-    except requests.exceptions.InvalidURL:
-        return None, 0, "Invalid URL format."
-    except Exception as exc:
-        return None, 0, str(exc)
+        rp = RobotFileParser()
+        rp.set_url(robots_url)
+        rp.read()
+        return rp.can_fetch(ua, url)
+    except Exception:
+        return True  # assume allowed if robots.txt unreadable
 
+def fetch_page(url: str, timeout: int = 15, retries: int = 2, delay: float = 1.0):
+    s = get_session()
+    for attempt in range(retries):
+        try:
+            resp = s.get(url, timeout=timeout, allow_redirects=True)
+            resp.raise_for_status()
+            log(f"GET {url} -> {resp.status_code} ({len(resp.content)//1024}KB)", "ok")
+            return resp
+        except requests.exceptions.HTTPError as e:
+            log(f"HTTP error ({e}) on attempt {attempt+1}", "err")
+        except requests.exceptions.ConnectionError:
+            log(f"Connection error on attempt {attempt+1}", "err")
+        except requests.exceptions.Timeout:
+            log(f"Timeout on attempt {attempt+1}", "warn")
+        except Exception as e:
+            log(f"Unexpected: {e}", "err")
+        if attempt < retries - 1:
+            time.sleep(delay)
+    return None
 
-def parse(html: str) -> BeautifulSoup:
-    return BeautifulSoup(html, "lxml")
+def get_soup(resp) -> BeautifulSoup:
+    encoding = resp.encoding or "utf-8"
+    return BeautifulSoup(resp.content, "lxml", from_encoding=encoding)
 
+def url_fingerprint(url: str) -> str:
+    return hashlib.md5(url.strip().lower().encode()).hexdigest()
 
-def extract_meta(soup: BeautifulSoup) -> dict:
-    def _get(soup, **kwargs):
-        tag = soup.find("meta", attrs=kwargs)
-        return tag.get("content", "—") if tag else "—"
-
-    title_tag = soup.find("title")
-    return {
-        "Title": title_tag.get_text(strip=True) if title_tag else "—",
-        "Description": _get(soup, attrs={"name": "description"}),
-        "Keywords": _get(soup, attrs={"name": "keywords"}),
-        "Author": _get(soup, attrs={"name": "author"}),
-        "Robots": _get(soup, attrs={"name": "robots"}),
-        "OG Title": _get(soup, property="og:title"),
-        "OG Description": _get(soup, property="og:description"),
-        "OG Image": _get(soup, property="og:image"),
-        "OG Type": _get(soup, property="og:type"),
-        "Twitter Card": _get(soup, attrs={"name": "twitter:card"}),
-        "Canonical": (lambda t: t["href"] if t else "—")(soup.find("link", rel="canonical")),
-        "Charset": (lambda t: t.get("charset", "—") if t else "—")(soup.find("meta", charset=True)),
-    }
-
-
-def extract_links(soup: BeautifulSoup, base: str) -> pd.DataFrame:
-    rows = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"].strip()
-        if not href or href.startswith(("javascript:", "#", "mailto:", "tel:")):
+# ─────────────────────────────────────────────
+# SCRAPER FUNCTIONS
+# ─────────────────────────────────────────────
+def scrape_links(soup: BeautifulSoup, base_url: str) -> list[dict]:
+    links = []
+    seen = set()
+    for tag in soup.find_all("a", href=True):
+        href = tag["href"].strip()
+        abs_url = urljoin(base_url, href)
+        if abs_url in seen:
             continue
-        full = urljoin(base, href)
-        parsed = urlparse(full)
-        rows.append({
-            "Text": a.get_text(strip=True)[:120] or "(no text)",
-            "URL": full,
-            "Domain": parsed.netloc,
-            "Path": parsed.path,
-            "External": parsed.netloc != urlparse(base).netloc,
+        seen.add(abs_url)
+        links.append({
+            "text": tag.get_text(strip=True)[:100] or "(no text)",
+            "url": abs_url,
+            "rel": tag.get("rel", ["—"])[0] if tag.get("rel") else "—",
+            "title": tag.get("title", "")[:60],
+            "external": urlparse(abs_url).netloc != urlparse(base_url).netloc,
         })
-    return pd.DataFrame(rows) if rows else pd.DataFrame()
+    return links
 
-
-def extract_images(soup: BeautifulSoup, base: str) -> pd.DataFrame:
-    rows = []
-    for img in soup.find_all("img"):
-        src = img.get("src") or img.get("data-src") or img.get("data-lazy-src") or ""
-        src = src.strip()
-        full = urljoin(base, src) if src else ""
-        rows.append({
-            "Alt": img.get("alt", "")[:100],
-            "URL": full,
-            "Width": img.get("width", ""),
-            "Height": img.get("height", ""),
-            "Loading": img.get("loading", ""),
-            "Class": " ".join(img.get("class", [])),
-        })
-    return pd.DataFrame(rows) if rows else pd.DataFrame()
-
-
-def extract_headings(soup: BeautifulSoup) -> pd.DataFrame:
-    rows = []
-    for tag in ["h1", "h2", "h3", "h4", "h5", "h6"]:
-        for el in soup.find_all(tag):
-            text = el.get_text(strip=True)
-            if text:
-                rows.append({"Level": tag.upper(), "Text": text, "ID": el.get("id", "")})
-    return pd.DataFrame(rows) if rows else pd.DataFrame()
-
-
-def extract_tables(soup: BeautifulSoup) -> list[pd.DataFrame]:
-    out = []
+def scrape_tables(soup: BeautifulSoup) -> list[pd.DataFrame]:
+    tables = []
     for tbl in soup.find_all("table"):
         try:
-            df = pd.read_html(io.StringIO(str(tbl)))[0]
-            if not df.empty:
-                out.append(df)
+            df = pd.read_html(str(tbl))[0]
+            tables.append(df)
         except Exception:
             pass
-    return out
+    return tables
 
+def scrape_images(soup: BeautifulSoup, base_url: str) -> list[dict]:
+    imgs = []
+    for img in soup.find_all("img"):
+        src = img.get("src") or img.get("data-src") or img.get("data-lazy-src") or ""
+        if not src:
+            continue
+        imgs.append({
+            "src": urljoin(base_url, src),
+            "alt": img.get("alt", "")[:80],
+            "width": img.get("width", "—"),
+            "height": img.get("height", "—"),
+            "loading": img.get("loading", "—"),
+        })
+    return imgs
 
-def extract_css(soup: BeautifulSoup, selector: str) -> pd.DataFrame:
+def scrape_meta(soup: BeautifulSoup, url: str) -> dict:
+    meta = {}
+    meta["url"] = url
+    meta["title"] = soup.title.string.strip() if soup.title else "—"
+
+    for m in soup.find_all("meta"):
+        name = (m.get("name") or m.get("property") or "").lower()
+        content = m.get("content", "")
+        if name:
+            meta[name] = content[:300]
+
+    # Open Graph
+    og = {k: v for k, v in meta.items() if k.startswith("og:")}
+    meta["_open_graph"] = og
+
+    # Twitter Card
+    tw = {k: v for k, v in meta.items() if k.startswith("twitter:")}
+    meta["_twitter"] = tw
+
+    # Canonical
+    canonical = soup.find("link", rel="canonical")
+    meta["canonical"] = canonical["href"] if canonical else "—"
+
+    # Headings
+    meta["h1"] = [h.get_text(strip=True) for h in soup.find_all("h1")]
+    meta["h2"] = [h.get_text(strip=True) for h in soup.find_all("h2")]
+
+    # Word count approximation
+    body_text = soup.get_text(separator=" ", strip=True)
+    meta["word_count"] = len(body_text.split())
+
+    # Schema.org JSON-LD
+    schemas = []
+    for s in soup.find_all("script", type="application/ld+json"):
+        try:
+            schemas.append(json.loads(s.string))
+        except Exception:
+            pass
+    meta["_schema_org"] = schemas
+
+    return meta
+
+def scrape_custom_css(soup: BeautifulSoup, selectors: list[str]) -> dict:
+    results = {}
+    for sel in selectors:
+        sel = sel.strip()
+        if not sel:
+            continue
+        try:
+            found = soup.select(sel)
+            results[sel] = [
+                el.get_text(separator=" ", strip=True)[:400]
+                for el in found
+            ]
+            log(f"Selector '{sel}' -> {len(found)} match(es)", "ok")
+        except Exception as e:
+            results[sel] = []
+            log(f"Selector '{sel}' error: {e}", "err")
+    return results
+
+def scrape_article(url: str) -> str:
     try:
-        els = soup.select(selector)
-        rows = [{
-            "Tag": el.name,
-            "Text": el.get_text(strip=True)[:200],
-            "Class": " ".join(el.get("class", [])),
-            "ID": el.get("id", ""),
-            "Href": el.get("href", ""),
-            "Src": el.get("src", ""),
-        } for el in els]
-        return pd.DataFrame(rows) if rows else pd.DataFrame()
+        downloaded = trafilatura.fetch_url(url)
+        text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+        return text or "— No article text extracted —"
     except Exception as e:
-        return pd.DataFrame({"Error": [str(e)]})
+        return f"Error: {e}"
 
+def crawl_site(
+    start_url: str,
+    max_pages: int = 10,
+    same_domain: bool = True,
+    delay: float = 1.0,
+    respect_robots: bool = True,
+    progress_bar=None,
+    status_text=None,
+) -> list[dict]:
+    visited = {}
+    queue = [start_url]
+    base_domain = urlparse(start_url).netloc
 
-def extract_emails(soup: BeautifulSoup) -> list[str]:
-    return sorted(set(EMAIL_RE.findall(soup.get_text())))
+    page_num = 0
+    while queue and page_num < max_pages:
+        url = queue.pop(0)
+        fp = url_fingerprint(url)
+        if fp in visited:
+            continue
 
+        if respect_robots and not check_robots(url):
+            log(f"Robots.txt disallows: {url}", "warn")
+            visited[fp] = {"url": url, "status": "robots_blocked", "title": "—", "links": 0}
+            continue
 
-def extract_paragraphs(soup: BeautifulSoup) -> list[str]:
-    return [p.get_text(strip=True) for p in soup.find_all("p") if len(p.get_text(strip=True)) > 20]
+        if status_text:
+            status_text.markdown(f'<div class="log-box"><span class="log-info">Crawling [{page_num+1}/{max_pages}]:</span> <span class="log-ok">{url[:80]}</span></div>', unsafe_allow_html=True)
 
+        resp = fetch_page(url, delay=delay)
+        page_num += 1
 
-def extract_scripts_styles(soup: BeautifulSoup, base: str) -> tuple[pd.DataFrame, pd.DataFrame]:
-    scripts, styles = [], []
-    for s in soup.find_all("script"):
-        src = s.get("src", "")
-        scripts.append({"Type": s.get("type", "text/javascript"), "Src": urljoin(base, src) if src else "(inline)", "Async": "async" in s.attrs, "Defer": "defer" in s.attrs})
-    for l in soup.find_all("link", rel=lambda v: v and "stylesheet" in v):
-        href = l.get("href", "")
-        styles.append({"Href": urljoin(base, href) if href else "", "Media": l.get("media", "all")})
-    return pd.DataFrame(scripts) if scripts else pd.DataFrame(), pd.DataFrame(styles) if styles else pd.DataFrame()
+        if progress_bar:
+            progress_bar.progress(page_num / max_pages)
 
+        if resp is None:
+            visited[fp] = {"url": url, "status": "error", "title": "—", "links": 0}
+            continue
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  SIDEBAR
-# ─────────────────────────────────────────────────────────────────────────────
+        soup = get_soup(resp)
+        title = soup.title.string.strip() if soup.title else "—"
+        links_found = scrape_links(soup, url)
+
+        visited[fp] = {
+            "url": url,
+            "status": resp.status_code,
+            "title": title[:80],
+            "links": len(links_found),
+            "content_type": resp.headers.get("Content-Type", "—"),
+            "size_kb": len(resp.content) // 1024,
+        }
+
+        for lnk in links_found:
+            lurl = lnk["url"]
+            lp = urlparse(lurl)
+            if url_fingerprint(lurl) in visited:
+                continue
+            if lp.scheme not in ("http", "https"):
+                continue
+            if same_domain and lp.netloc != base_domain:
+                continue
+            if lurl not in queue:
+                queue.append(lurl)
+
+        time.sleep(delay)
+
+    return list(visited.values())
+
+def extract_structured_data(soup: BeautifulSoup) -> dict:
+    """Extract emails, phones, social links, addresses from page."""
+    text = soup.get_text(separator=" ")
+    emails = list(set(re.findall(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", text)))
+    phones = list(set(re.findall(r"(?:\+?\d[\d\s\-().]{7,}\d)", text)))[:20]
+    
+    social_patterns = {
+        "twitter": r"twitter\.com/([a-zA-Z0-9_]{1,50})",
+        "linkedin": r"linkedin\.com/(?:in|company)/([a-zA-Z0-9_\-]{1,100})",
+        "github": r"github\.com/([a-zA-Z0-9_\-]{1,100})",
+        "instagram": r"instagram\.com/([a-zA-Z0-9_.]{1,50})",
+        "facebook": r"facebook\.com/([a-zA-Z0-9_.]{1,100})",
+        "youtube": r"youtube\.com/(?:@|channel/|c/)([a-zA-Z0-9_\-]{1,100})",
+    }
+    social = {}
+    for platform, pattern in social_patterns.items():
+        found = list(set(re.findall(pattern, text, re.IGNORECASE)))
+        if found:
+            social[platform] = found
+
+    return {"emails": emails, "phones": phones, "social_profiles": social}
+
+# ─────────────────────────────────────────────
+# EXPORT HELPERS
+# ─────────────────────────────────────────────
+def to_csv_bytes(df: pd.DataFrame) -> bytes:
+    buf = io.StringIO()
+    df.to_csv(buf, index=False)
+    return buf.getvalue().encode()
+
+def to_json_bytes(data) -> bytes:
+    return json.dumps(data, indent=2, ensure_ascii=False).encode()
+
+# ─────────────────────────────────────────────
+# SIDEBAR
+# ─────────────────────────────────────────────
 with st.sidebar:
     st.markdown(f"""
-    <div style="display:flex;align-items:center;gap:10px;padding:.5rem 0 .3rem;">
-      {svg('spider', 28, '#8b5cf6')}
-      <span style="font-family:var(--mono);font-size:1rem;font-weight:700;
-        background:linear-gradient(90deg,#8b5cf6,#06b6d4);
-        -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-        background-clip:text;">WebScraper Pro</span>
-    </div>
-    <div style="font-size:.72rem;color:#475569;margin-bottom:1rem;font-family:var(--mono);">
-      v2.0 · BeautifulSoup + Requests
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown(f'<div class="sidebar-section-title">{icon_html("settings",12,"#475569")} Configuration</div>', unsafe_allow_html=True)
-
-    timeout = st.slider("Request Timeout (s)", 5, 30, 12, key="timeout")
-    delay   = st.slider("Polite Delay (s)", 0.0, 3.0, 0.5, step=0.5, key="delay")
-    max_rows = st.slider("Max Rows to Display", 50, 500, 200, step=50, key="max_rows")
-    show_raw = st.checkbox("Show raw HTML snippet", value=False, key="show_raw")
-
-    st.markdown("---")
-    st.markdown(f'<div class="sidebar-section-title">{icon_html("layers",12,"#475569")} Scrape Modes</div>', unsafe_allow_html=True)
-
-    mode_map = {
-        "Full Analysis":  ("layers",  "Everything at once"),
-        "Links":          ("link",    "All anchor tags"),
-        "Images":         ("image",   "img src + alt"),
-        "Headings":       ("heading", "H1–H6 structure"),
-        "Tables":         ("table",   "HTML tables → CSV"),
-        "CSS Selector":   ("target",  "Custom element query"),
-        "Emails":         ("mail",    "Regex email harvest"),
-        "Paragraphs":     ("text",    "Body text extraction"),
-        "Assets":         ("cpu",     "Scripts & stylesheets"),
-    }
-    for name, (icon, desc) in mode_map.items():
-        st.markdown(
-            f'<div class="sidebar-mode-item">{svg(icon,14,"#6d28d9")}'
-            f'<span style="flex:1">{name}</span>'
-            f'<span style="font-size:.65rem;color:#334155">{desc}</span></div>',
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("---")
-    if st.session_state.request_count:
-        st.markdown(f"""
-        <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:.9rem 1rem;">
-          <div style="font-family:var(--mono);font-size:.7rem;color:var(--muted);margin-bottom:.5rem;">SESSION STATS</div>
-          <div style="display:flex;justify-content:space-between;font-size:.78rem;">
-            <span style="color:#a78bfa">Requests</span>
-            <span style="font-family:var(--mono);color:var(--txt)">{st.session_state.request_count}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:.78rem;margin-top:4px;">
-            <span style="color:#a78bfa">Items scraped</span>
-            <span style="font-family:var(--mono);color:var(--txt)">{st.session_state.total_items:,}</span>
-          </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:0.6rem 0 1.2rem 0;border-bottom:1px solid var(--border,#1a3828);margin-bottom:1rem;">
+        {ICON_SPIDER}
+        <div>
+            <div style="font-family:'Space Mono',monospace;color:#00D4AA;font-size:1rem;font-weight:700;">WebHarvest</div>
+            <div style="font-size:0.68rem;color:#5a7a65;font-family:'Space Mono',monospace;">PRO v2.0</div>
         </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div style="font-size:.68rem;color:#1e293b;margin-top:1rem;line-height:1.7;">
-      Always respect robots.txt &amp; ToS.<br>Use polite delays on production.
     </div>
     """, unsafe_allow_html=True)
 
+    st.markdown(f'<div style="font-size:0.75rem;color:#00D4AA;font-family:\'Space Mono\',monospace;margin-bottom:0.5rem;display:flex;align-items:center;gap:6px;">{ICON_SETTINGS} REQUEST SETTINGS</div>', unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  HERO HEADER
-# ─────────────────────────────────────────────────────────────────────────────
+    timeout = st.slider("Timeout (s)", 5, 60, 15)
+    retries = st.slider("Retries", 1, 5, 2)
+    delay = st.slider("Request Delay (s)", 0.0, 5.0, 1.0, 0.5)
+    respect_robots = st.checkbox("Respect robots.txt", value=True)
+    verify_ssl = st.checkbox("Verify SSL", value=True)
+
+    st.markdown("---")
+    st.markdown(f'<div style="font-size:0.75rem;color:#00D4AA;font-family:\'Space Mono\',monospace;margin-bottom:0.5rem;display:flex;align-items:center;gap:6px;">{ICON_CRAWL} CRAWLER SETTINGS</div>', unsafe_allow_html=True)
+
+    max_pages = st.number_input("Max Pages (Crawler)", min_value=1, max_value=100, value=10)
+    same_domain = st.checkbox("Same domain only", value=True)
+
+    st.markdown("---")
+    if st.button("Clear Logs + Results", type="secondary"):
+        st.session_state.logs = []
+        st.session_state.results = {}
+        st.session_state.history = []
+        st.rerun()
+
+    st.markdown("---")
+    # Activity log in sidebar
+    st.markdown('<div style="font-size:0.72rem;color:#5a7a65;font-family:\'Space Mono\',monospace;margin-bottom:0.4rem;">ACTIVITY LOG</div>', unsafe_allow_html=True)
+    log_html = ""
+    for entry in st.session_state.logs[-30:][::-1]:
+        cls = f"log-{entry['level']}"
+        log_html += f'<div><span class="log-info">[{entry["ts"]}]</span> <span class="{cls}">{entry["msg"]}</span></div>'
+    no_activity = '<span class="log-info">No activity yet.</span>'
+    st.markdown(f'<div class="log-box" style="max-height:300px;">{log_html or no_activity}</div>', unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# HEADER
+# ─────────────────────────────────────────────
 st.markdown(f"""
-<div class="hero">
-  <div class="hero-grid"></div>
-  <div style="position:relative;z-index:1;display:flex;align-items:center;gap:1.2rem;">
-    <div>{svg('spider', 48, '#8b5cf6')}</div>
-    <div>
-      <div class="hero-title">WebScraper Pro</div>
-      <div class="hero-sub">Advanced web data extraction &mdash; BeautifulSoup · lxml · Requests · Pandas</div>
-      <div class="hero-badge">
-        {svg('zap',12,'#a78bfa')} Deploy-ready &nbsp;|&nbsp; {svg('globe',12,'#a78bfa')} Any public URL &nbsp;|&nbsp;
-        {svg('download',12,'#a78bfa')} CSV &amp; JSON export
-      </div>
-    </div>
-  </div>
+<div class="wh-header">
+    {ICON_SPIDER}
+    <h1>WebHarvest Pro <span class="sub">Advanced Web Scraper</span></h1>
 </div>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  INPUT ROW
-# ─────────────────────────────────────────────────────────────────────────────
-col_url, col_mode = st.columns([3, 2])
+# ─────────────────────────────────────────────
+# URL INPUT
+# ─────────────────────────────────────────────
+col_url, col_btn = st.columns([5, 1])
 with col_url:
-    url_input = st.text_input(
-        f"{icon_html('globe',14,'#8b5cf6')} Target URL",
+    target_url = st.text_input(
+        "Target URL",
         placeholder="https://example.com",
-        label_visibility="visible",
-        key="url_input",
+        label_visibility="collapsed",
     )
-with col_mode:
-    mode = st.selectbox(
-        f"{icon_html('layers',14,'#8b5cf6')} Scrape Mode",
-        list(mode_map.keys()),
-        key="mode_select",
-    )
+with col_btn:
+    go = st.button("Scrape", use_container_width=True)
 
-custom_selector = ""
-if mode == "CSS Selector":
-    custom_selector = st.text_input(
-        f"{icon_html('target',14,'#8b5cf6')} CSS Selector",
-        placeholder="e.g.  article h2,  div.price,  table.wikitable,  nav a",
-        key="css_selector",
-    )
+# ─────────────────────────────────────────────
+# TABS
+# ─────────────────────────────────────────────
+tab_links, tab_tables, tab_images, tab_meta, tab_css, tab_article, tab_crawl, tab_structured = st.tabs([
+    "Links", "Tables", "Images", "Meta / SEO", "CSS Selectors", "Article Text", "Site Crawler", "Emails & Social"
+])
 
-scrape_btn = st.button(
-    "SCRAPE NOW",
-    use_container_width=True,
-    key="scrape_btn",
-)
+# ─────────────────────────────────────────────
+# SCRAPING EXECUTION
+# ─────────────────────────────────────────────
+if go and target_url:
+    if not target_url.startswith("http"):
+        target_url = "https://" + target_url
 
-st.markdown("---")
+    with st.spinner("Fetching page..."):
+        if respect_robots and not check_robots(target_url):
+            st.warning("robots.txt disallows scraping this URL. Proceeding may violate site policy.")
+            log(f"robots.txt warning for {target_url}", "warn")
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  MAIN SCRAPING BLOCK
-# ─────────────────────────────────────────────────────────────────────────────
-if scrape_btn:
-    url = url_input.strip()
-    if not url:
-        st.error("Please enter a URL first.")
-        st.stop()
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
+        resp = fetch_page(target_url, timeout=timeout, retries=retries, delay=delay)
 
-    # reset log for this run
-    st.session_state.scrape_log = []
-    log(f"Initialising scrape → {url}", "info")
+    if resp:
+        soup = get_soup(resp)
 
-    prog = st.progress(0, text="Fetching page…")
+        # ── store results ──
+        st.session_state.results["links"] = scrape_links(soup, target_url)
+        st.session_state.results["tables"] = scrape_tables(soup)
+        st.session_state.results["images"] = scrape_images(soup, target_url)
+        st.session_state.results["meta"] = scrape_meta(soup, target_url)
+        st.session_state.results["structured"] = extract_structured_data(soup)
+        st.session_state.results["url"] = target_url
+        st.session_state.results["resp"] = {
+            "status": resp.status_code,
+            "content_type": resp.headers.get("Content-Type", "—"),
+            "server": resp.headers.get("Server", "—"),
+            "size_kb": len(resp.content) // 1024,
+            "encoding": resp.encoding or "—",
+        }
+        st.session_state.history.append({
+            "url": target_url,
+            "ts": datetime.now().strftime("%H:%M:%S"),
+            "status": resp.status_code,
+        })
+        log(f"Scrape complete: {target_url}", "ok")
+    else:
+        st.error("Failed to fetch the page. Check the URL and your network.")
 
-    with st.spinner(""):
-        html, status, err = fetch_page(url, timeout)
-        time.sleep(delay)
+# ─────────────────────────────────────────────
+# STAT BAR
+# ─────────────────────────────────────────────
+if st.session_state.results:
+    r = st.session_state.results
+    resp_info = r.get("resp", {})
+    status = resp_info.get("status", "—")
+    badge_cls = "badge-ok" if str(status).startswith("2") else "badge-err"
 
-    prog.progress(25, text="Parsing HTML…")
-
-    if err or html is None:
-        st.error(f"Fetch failed — {err}")
-        log(f"ERROR: {err}", "err")
-        st.stop()
-
-    log(f"HTTP {status} · {len(html):,} bytes received", "ok")
-    soup = parse(html)
-    st.session_state.request_count += 1
-
-    prog.progress(50, text="Extracting data…")
-
-    # ── FULL ANALYSIS ────────────────────────────────────────────────────────
-    if mode == "Full Analysis":
-        meta       = extract_meta(soup)
-        df_links   = extract_links(soup, url)
-        df_images  = extract_images(soup, url)
-        df_heads   = extract_headings(soup)
-        emails     = extract_emails(soup)
-        tables     = extract_tables(soup)
-        paragraphs = extract_paragraphs(soup)
-
-        prog.progress(90, text="Rendering…")
-        log(f"Full analysis: {len(df_links)} links, {len(df_images)} images, {len(df_heads)} headings, {len(emails)} emails, {len(tables)} tables", "ok")
-
-        # metrics
-        cols = st.columns(6)
-        metric_card(cols[0], "link",    len(df_links),    "Links",      "#06b6d4")
-        metric_card(cols[1], "image",   len(df_images),   "Images",     "#8b5cf6")
-        metric_card(cols[2], "heading", len(df_heads),    "Headings",   "#f59e0b")
-        metric_card(cols[3], "mail",    len(emails),      "Emails",     "#10b981")
-        metric_card(cols[4], "table",   len(tables),      "Tables",     "#ef4444")
-        metric_card(cols[5], "text",    len(paragraphs),  "Paragraphs", "#a78bfa")
-
-        # meta
-        section_header("info", "Page Metadata")
-        g1, g2 = st.columns(2)
-        meta_items = list(meta.items())
-        for i, (k, v) in enumerate(meta_items):
-            col = g1 if i % 2 == 0 else g2
-            col.markdown(
-                f'<div class="meta-block"><div class="meta-key">{k}</div>'
-                f'<div class="meta-val">{v or "—"}</div></div>',
-                unsafe_allow_html=True,
-            )
-
-        # tabs
-        t1, t2, t3, t4, t5, t6 = st.tabs(["Links", "Images", "Headings", "Emails", "Tables", "Text"])
-
-        with t1:
-            if not df_links.empty:
-                st.dataframe(df_links.head(max_rows), use_container_width=True, height=350)
-                c1, c2 = st.columns(2)
-                c1.download_button(f"{icon_html('download',12,'#06b6d4')} CSV", to_csv(df_links), "links.csv", "text/csv")
-                c2.download_button(f"{icon_html('download',12,'#06b6d4')} JSON", to_json(df_links.to_dict("records")), "links.json")
-            else:
-                st.info("No links found.")
-
-        with t2:
-            if not df_images.empty:
-                st.dataframe(df_images.head(max_rows), use_container_width=True, height=300)
-                preview_cols = st.columns(3)
-                shown = 0
-                for _, row in df_images.iterrows():
-                    if shown >= 6: break
-                    if row["URL"].startswith("http"):
-                        try:
-                            preview_cols[shown % 3].image(row["URL"], caption=row["Alt"][:40], use_container_width=True)
-                            shown += 1
-                        except Exception:
-                            pass
-                st.download_button(f"{icon_html('download',12,'#06b6d4')} CSV", to_csv(df_images), "images.csv", "text/csv")
-
-        with t3:
-            if not df_heads.empty:
-                level_colors = {"H1":"#8b5cf6","H2":"#06b6d4","H3":"#f59e0b","H4":"#10b981","H5":"#ef4444","H6":"#a78bfa"}
-                for _, row in df_heads.iterrows():
-                    c = level_colors.get(row["Level"], "#94a3b8")
-                    indent = "&nbsp;" * (int(row["Level"][1]) - 1) * 6
-                    st.markdown(
-                        f'<div class="result-row">{indent}'
-                        f'<span class="tag" style="background:rgba(0,0,0,.2);border-color:{c};color:{c};">{row["Level"]}</span>'
-                        f' {row["Text"]}</div>',
-                        unsafe_allow_html=True,
-                    )
-                st.download_button(f"{icon_html('download',12,'#06b6d4')} CSV", to_csv(df_heads), "headings.csv", "text/csv")
-
-        with t4:
-            if emails:
-                for em in emails:
-                    st.markdown(f'<div class="result-row">{svg("mail",14,"#10b981")} &nbsp;<code style="color:#10b981">{em}</code></div>', unsafe_allow_html=True)
-                df_em = pd.DataFrame({"email": emails})
-                st.download_button(f"{icon_html('download',12,'#06b6d4')} CSV", to_csv(df_em), "emails.csv", "text/csv")
-            else:
-                st.info("No emails found.")
-
-        with t5:
-            if tables:
-                for i, tbl in enumerate(tables):
-                    with st.expander(f"Table {i+1} — {tbl.shape[0]} rows × {tbl.shape[1]} cols"):
-                        st.dataframe(tbl, use_container_width=True)
-                        st.download_button(f"{icon_html('download',12,'#06b6d4')} CSV", to_csv(tbl), f"table_{i+1}.csv", "text/csv", key=f"tbl_{i}")
-            else:
-                st.info("No HTML tables found.")
-
-        with t6:
-            kw = st.text_input("Filter paragraphs", placeholder="keyword…", key="full_para_filter")
-            filtered_p = [p for p in paragraphs if kw.lower() in p.lower()] if kw else paragraphs
-            for p in filtered_p[:60]:
-                st.markdown(f'<div class="result-row">{p}</div>', unsafe_allow_html=True)
-
-        st.session_state.total_items += len(df_links) + len(df_images) + len(df_heads)
-
-    # ── LINKS ────────────────────────────────────────────────────────────────
-    elif mode == "Links":
-        df = extract_links(soup, url)
-        prog.progress(90, text="Rendering…")
-        log(f"Extracted {len(df)} links", "ok")
-
-        metric_card(st.columns(3)[1], "link", len(df), "Links Found", "#06b6d4")
-        section_header("filter", "Filter & Explore")
-
-        col_f1, col_f2, col_f3 = st.columns(3)
-        kw       = col_f1.text_input("URL keyword filter", placeholder="/blog or .pdf")
-        ext_only = col_f2.checkbox("External links only")
-        int_only = col_f3.checkbox("Internal links only")
-
-        if not df.empty:
-            if kw:        df = df[df["URL"].str.contains(kw, case=False, na=False)]
-            if ext_only:  df = df[df["External"] == True]
-            if int_only:  df = df[df["External"] == False]
-
-            st.dataframe(df.head(max_rows), use_container_width=True, height=420)
-            c1, c2 = st.columns(2)
-            c1.download_button(f"{icon_html('download',12,'#06b6d4')} CSV",  to_csv(df),                        "links.csv",  "text/csv")
-            c2.download_button(f"{icon_html('download',12,'#06b6d4')} JSON", to_json(df.to_dict("records")), "links.json")
-        else:
-            st.info("No links found on this page.")
-        st.session_state.total_items += len(df)
-
-    # ── IMAGES ───────────────────────────────────────────────────────────────
-    elif mode == "Images":
-        df = extract_images(soup, url)
-        prog.progress(90, text="Rendering…")
-        log(f"Extracted {len(df)} images", "ok")
-
-        cols3 = st.columns(3)
-        metric_card(cols3[0], "image", len(df), "Images", "#8b5cf6")
-        metric_card(cols3[1], "image", df["Alt"].astype(bool).sum() if not df.empty else 0, "With Alt Text", "#10b981")
-        metric_card(cols3[2], "image", (df["Loading"] == "lazy").sum() if not df.empty else 0, "Lazy Loaded", "#f59e0b")
-
-        if not df.empty:
-            kw = st.text_input(f"{icon_html('search',12,'#8b5cf6')} Filter images by alt text or URL")
-            if kw:
-                df = df[df["Alt"].str.contains(kw, case=False, na=False) | df["URL"].str.contains(kw, case=False, na=False)]
-
-            section_header("image", "Image Preview (first 9)")
-            preview_cols = st.columns(3)
-            shown = 0
-            for _, row in df.iterrows():
-                if shown >= 9: break
-                if row["URL"].startswith("http"):
-                    try:
-                        preview_cols[shown % 3].image(row["URL"], caption=row["Alt"][:50] or "(no alt)", use_container_width=True)
-                        shown += 1
-                    except Exception:
-                        pass
-
-            section_header("table", "Full Image Data")
-            st.dataframe(df.head(max_rows), use_container_width=True, height=300)
-            st.download_button(f"{icon_html('download',12,'#06b6d4')} CSV", to_csv(df), "images.csv", "text/csv")
-        else:
-            st.info("No images found.")
-        st.session_state.total_items += len(df)
-
-    # ── HEADINGS ─────────────────────────────────────────────────────────────
-    elif mode == "Headings":
-        df = extract_headings(soup)
-        prog.progress(90, text="Rendering…")
-        log(f"Extracted {len(df)} headings", "ok")
-
-        if not df.empty:
-            level_counts = df["Level"].value_counts().to_dict()
-            cols = st.columns(min(len(level_counts), 6))
-            level_colors = {"H1":"#8b5cf6","H2":"#06b6d4","H3":"#f59e0b","H4":"#10b981","H5":"#ef4444","H6":"#a78bfa"}
-            for i, (lv, cnt) in enumerate(sorted(level_counts.items())):
-                metric_card(cols[i], "heading", cnt, f"{lv} Tags", level_colors.get(lv, "#94a3b8"))
-
-            section_header("heading", "Heading Hierarchy")
-            for _, row in df.iterrows():
-                depth = int(row["Level"][1])
-                c = level_colors.get(row["Level"], "#94a3b8")
-                indent = "&nbsp;" * (depth - 1) * 8
-                st.markdown(
-                    f'<div class="result-row">{indent}'
-                    f'<span style="color:{c};font-family:var(--mono);font-size:.72rem;font-weight:700;">{row["Level"]}</span>'
-                    f'&nbsp;&nbsp;{row["Text"]}'
-                    + (f' <span class="tag tag-cyan" style="float:right">#{row["ID"]}</span>' if row["ID"] else "")
-                    + '</div>',
-                    unsafe_allow_html=True,
-                )
-            st.download_button(f"{icon_html('download',12,'#06b6d4')} CSV", to_csv(df), "headings.csv", "text/csv")
-        else:
-            st.info("No headings found.")
-        st.session_state.total_items += len(df)
-
-    # ── TABLES ───────────────────────────────────────────────────────────────
-    elif mode == "Tables":
-        tables = extract_tables(soup)
-        prog.progress(90, text="Rendering…")
-        log(f"Extracted {len(tables)} tables", "ok")
-
-        metric_card(st.columns(3)[1], "table", len(tables), "Tables Found", "#ef4444")
-
-        if tables:
-            total_cells = sum(t.shape[0] * t.shape[1] for t in tables)
-            st.markdown(f'<div class="result-row">{svg("info",14,"#a78bfa")} &nbsp; <b>{total_cells:,}</b> total cells across all tables</div>', unsafe_allow_html=True)
-            for i, tbl in enumerate(tables):
-                with st.expander(f"Table {i+1}  ·  {tbl.shape[0]} rows × {tbl.shape[1]} columns", expanded=i == 0):
-                    st.dataframe(tbl.head(max_rows), use_container_width=True)
-                    cc1, cc2 = st.columns(2)
-                    cc1.download_button(f"{icon_html('download',12,'#06b6d4')} CSV",  to_csv(tbl),                        f"table_{i+1}.csv",  "text/csv",           key=f"csv_{i}")
-                    cc2.download_button(f"{icon_html('download',12,'#06b6d4')} JSON", to_json(tbl.to_dict("records")), f"table_{i+1}.json",                          key=f"json_{i}")
-        else:
-            st.info("No HTML `<table>` elements found on this page.")
-        st.session_state.total_items += sum(len(t) for t in tables)
-
-    # ── CSS SELECTOR ─────────────────────────────────────────────────────────
-    elif mode == "CSS Selector":
-        if not custom_selector.strip():
-            st.warning("Enter a CSS selector above to begin.")
-        else:
-            df = extract_css(soup, custom_selector)
-            prog.progress(90, text="Rendering…")
-            log(f"Selector '{custom_selector}' matched {len(df)} elements", "ok")
-
-            cols2 = st.columns(2)
-            metric_card(cols2[0], "target", len(df), "Elements Matched", "#8b5cf6")
-            unique_tags = df["Tag"].nunique() if not df.empty and "Tag" in df.columns else 0
-            metric_card(cols2[1], "layers", unique_tags, "Unique Tag Types", "#06b6d4")
-
-            if not df.empty:
-                section_header("target", f"Results for: {custom_selector}")
-                st.dataframe(df.head(max_rows), use_container_width=True, height=400)
-                cc1, cc2 = st.columns(2)
-                cc1.download_button(f"{icon_html('download',12,'#06b6d4')} CSV",  to_csv(df),                        "selector.csv",  "text/csv")
-                cc2.download_button(f"{icon_html('download',12,'#06b6d4')} JSON", to_json(df.to_dict("records")), "selector.json")
-            else:
-                st.info(f"No elements matched `{custom_selector}`")
-            st.session_state.total_items += len(df)
-
-    # ── EMAILS ───────────────────────────────────────────────────────────────
-    elif mode == "Emails":
-        emails = extract_emails(soup)
-        prog.progress(90, text="Rendering…")
-        log(f"Found {len(emails)} email addresses", "ok")
-
-        metric_card(st.columns(3)[1], "mail", len(emails), "Emails Found", "#10b981")
-
-        if emails:
-            section_header("mail", "Discovered Emails")
-            for em in emails:
-                domain = em.split("@")[-1]
-                st.markdown(
-                    f'<div class="result-row">{svg("mail",14,"#10b981")}&nbsp;&nbsp;'
-                    f'<code style="color:#10b981">{em}</code>'
-                    f'&nbsp;<span class="tag tag-cyan">@{domain}</span></div>',
-                    unsafe_allow_html=True,
-                )
-            df_em = pd.DataFrame({"email": emails, "domain": [e.split("@")[-1] for e in emails]})
-            st.download_button(f"{icon_html('download',12,'#06b6d4')} CSV", to_csv(df_em), "emails.csv", "text/csv")
-        else:
-            st.info("No email addresses found.")
-        st.session_state.total_items += len(emails)
-
-    # ── PARAGRAPHS ───────────────────────────────────────────────────────────
-    elif mode == "Paragraphs":
-        paragraphs = extract_paragraphs(soup)
-        prog.progress(90, text="Rendering…")
-        log(f"Extracted {len(paragraphs)} paragraphs", "ok")
-
-        word_count = sum(len(p.split()) for p in paragraphs)
-        char_count = sum(len(p) for p in paragraphs)
-        cols3 = st.columns(3)
-        metric_card(cols3[0], "text",   len(paragraphs), "Paragraphs", "#a78bfa")
-        metric_card(cols3[1], "search", word_count,      "Words",      "#06b6d4")
-        metric_card(cols3[2], "copy",   char_count,      "Characters", "#f59e0b")
-
-        section_header("search", "Search & Browse")
-        kw = st.text_input("Keyword filter", placeholder="Search within paragraphs…")
-        filtered = [p for p in paragraphs if kw.lower() in p.lower()] if kw else paragraphs
-
-        if kw:
-            st.markdown(f'<span class="tag tag-amber">{len(filtered)} / {len(paragraphs)} match</span>', unsafe_allow_html=True)
-
-        for p in filtered[:max_rows]:
-            highlighted = p
-            if kw:
-                highlighted = re.sub(
-                    f"({re.escape(kw)})",
-                    r'<mark style="background:#f59e0b33;color:#f59e0b;border-radius:3px;">\1</mark>',
-                    highlighted, flags=re.IGNORECASE,
-                )
-            st.markdown(f'<div class="result-row">{highlighted}</div>', unsafe_allow_html=True)
-
-        if paragraphs:
-            st.download_button(f"{icon_html('download',12,'#06b6d4')} Download text", "\n\n".join(paragraphs).encode(), "paragraphs.txt", "text/plain")
-        st.session_state.total_items += len(paragraphs)
-
-    # ── ASSETS ───────────────────────────────────────────────────────────────
-    elif mode == "Assets":
-        df_scripts, df_styles = extract_scripts_styles(soup, url)
-        prog.progress(90, text="Rendering…")
-        log(f"Found {len(df_scripts)} scripts, {len(df_styles)} stylesheets", "ok")
-
-        cols2 = st.columns(2)
-        metric_card(cols2[0], "cpu",    len(df_scripts), "Scripts",      "#8b5cf6")
-        metric_card(cols2[1], "layers", len(df_styles),  "Stylesheets",  "#06b6d4")
-
-        section_header("cpu", "JavaScript Files")
-        if not df_scripts.empty:
-            st.dataframe(df_scripts, use_container_width=True, height=300)
-            st.download_button(f"{icon_html('download',12,'#06b6d4')} CSV", to_csv(df_scripts), "scripts.csv", "text/csv")
-        else:
-            st.info("No script tags found.")
-
-        section_header("layers", "Stylesheets")
-        if not df_styles.empty:
-            st.dataframe(df_styles, use_container_width=True, height=220)
-            st.download_button(f"{icon_html('download',12,'#06b6d4')} CSS list", to_csv(df_styles), "styles.csv", "text/csv")
-        else:
-            st.info("No linked stylesheets found.")
-
-    prog.progress(100, text="Done")
-
-    # ── raw HTML snippet ─────────────────────────────────────────────────────
-    if show_raw:
-        section_header("copy", "Raw HTML (first 4000 chars)")
-        st.code(html[:4000], language="html")
-
-    # ── activity log ─────────────────────────────────────────────────────────
-    log("Scrape complete.", "ok")
-    section_header("activity", "Activity Log")
-    log_html = "<br>".join([f"&gt; {l}" for l in st.session_state.scrape_log])
-    st.markdown(f'<div class="terminal">{log_html}</div>', unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  WELCOME / IDLE STATE
-# ─────────────────────────────────────────────────────────────────────────────
-else:
     st.markdown(f"""
-    <div class="empty-state">
-      {svg('spider', 52, '#4c1d95')}
-      <div class="empty-title">Ready to extract</div>
-      <div class="empty-sub">
-        Paste a URL above, choose a scrape mode, and hit
-        <strong style="color:#8b5cf6">SCRAPE NOW</strong>.<br>
-        Supports links, images, headings, tables, emails, CSS selectors, paragraphs &amp; asset maps.
-      </div>
+    <div class="stat-row">
+        <div class="stat-pill">
+            <span class="val">{len(r.get('links', []))}</span>
+            <span class="lbl">Links Found</span>
+        </div>
+        <div class="stat-pill">
+            <span class="val">{len(r.get('tables', []))}</span>
+            <span class="lbl">Tables</span>
+        </div>
+        <div class="stat-pill">
+            <span class="val">{len(r.get('images', []))}</span>
+            <span class="lbl">Images</span>
+        </div>
+        <div class="stat-pill">
+            <span class="val">{resp_info.get('size_kb','—')} KB</span>
+            <span class="lbl">Page Size</span>
+        </div>
+        <div class="stat-pill">
+            <span class="val"><span class="badge {badge_cls}">{status}</span></span>
+            <span class="lbl">HTTP Status</span>
+        </div>
+        <div class="stat-pill">
+            <span class="val">{r.get('meta',{}).get('word_count','—')}</span>
+            <span class="lbl">Words</span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-    section_header("layers", "Available Modes")
-    grid_cols = st.columns(3)
-    modes_desc = [
-        ("layers",  "Full Analysis",  "Complete page breakdown: meta, links, images, headings, emails, tables all at once."),
-        ("link",    "Links",          "All anchor tags with URL, text, domain and internal/external detection."),
-        ("image",   "Images",         "Harvests img src + alt, lazy-load status, with inline previews."),
-        ("heading", "Headings",       "H1–H6 tag hierarchy, colour-coded by level, with ID attributes."),
-        ("table",   "Tables",         "Parses every HTML table into a DataFrame, downloadable as CSV."),
-        ("target",  "CSS Selector",   "Query any element using standard CSS selectors — div.price, nav a, etc."),
-        ("mail",    "Emails",         "Regex scan of full page text to harvest all email addresses."),
-        ("text",    "Paragraphs",     "All <p> body text with word count, keyword filter and highlight."),
-        ("cpu",     "Assets",         "Inventory all JavaScript files and linked CSS stylesheets."),
-    ]
-    for i, (icon, name, desc) in enumerate(modes_desc):
-        grid_cols[i % 3].markdown(
-            f'<div class="mode-card">'
-            f'<div class="mode-card-icon">{svg(icon, 20, "#6d28d9")}</div>'
-            f'<div class="mode-card-name">{name}</div>'
-            f'<div class="mode-card-desc">{desc}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
+# ─────────────────────────────────────────────
+# TAB: LINKS
+# ─────────────────────────────────────────────
+with tab_links:
+    st.markdown(f'<div class="wh-card"><h4>{ICON_LINK} Extracted Links</h4>', unsafe_allow_html=True)
+
+    if "links" in st.session_state.results:
+        links = st.session_state.results["links"]
+        if links:
+            df_links = pd.DataFrame(links)
+
+            col_f1, col_f2 = st.columns(2)
+            with col_f1:
+                link_filter = st.text_input("Filter by text or URL", key="lf", placeholder="Search...")
+            with col_f2:
+                ext_filter = st.selectbox("Type", ["All", "Internal", "External"], key="ef")
+
+            filtered = df_links.copy()
+            if link_filter:
+                mask = (
+                    filtered["text"].str.contains(link_filter, case=False, na=False) |
+                    filtered["url"].str.contains(link_filter, case=False, na=False)
+                )
+                filtered = filtered[mask]
+            if ext_filter == "External":
+                filtered = filtered[filtered["external"] == True]
+            elif ext_filter == "Internal":
+                filtered = filtered[filtered["external"] == False]
+
+            st.markdown(f'<div style="font-size:0.78rem;color:var(--muted,#5a7a65);margin-bottom:0.5rem;font-family:\'Space Mono\',monospace;">{len(filtered)} / {len(links)} links shown</div>', unsafe_allow_html=True)
+            st.dataframe(filtered, use_container_width=True, hide_index=True)
+
+            st.download_button(
+                "Download CSV",
+                data=to_csv_bytes(filtered),
+                file_name="links.csv",
+                mime="text/csv",
+            )
+        else:
+            st.info("No links found on this page.")
+    else:
+        st.markdown('<div style="color:var(--muted,#5a7a65);font-size:0.85rem;">Enter a URL and click Scrape to extract links.</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# TAB: TABLES
+# ─────────────────────────────────────────────
+with tab_tables:
+    st.markdown(f'<div class="wh-card"><h4>{ICON_TABLE} Extracted Tables</h4>', unsafe_allow_html=True)
+
+    if "tables" in st.session_state.results:
+        tables = st.session_state.results["tables"]
+        if tables:
+            for i, df in enumerate(tables):
+                with st.expander(f"Table {i+1}  —  {df.shape[0]} rows x {df.shape[1]} cols"):
+                    st.dataframe(df, use_container_width=True)
+                    st.download_button(
+                        f"Download Table {i+1} CSV",
+                        data=to_csv_bytes(df),
+                        file_name=f"table_{i+1}.csv",
+                        mime="text/csv",
+                        key=f"dl_tbl_{i}",
+                    )
+        else:
+            st.info("No HTML tables found on this page.")
+    else:
+        st.markdown('<div style="color:var(--muted,#5a7a65);font-size:0.85rem;">Enter a URL and click Scrape.</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# TAB: IMAGES
+# ─────────────────────────────────────────────
+with tab_images:
+    st.markdown(f'<div class="wh-card"><h4>{ICON_IMAGE} Extracted Images</h4>', unsafe_allow_html=True)
+
+    if "images" in st.session_state.results:
+        images = st.session_state.results["images"]
+        if images:
+            df_imgs = pd.DataFrame(images)
+            img_search = st.text_input("Filter by src or alt text", key="img_f", placeholder="Search...")
+            if img_search:
+                df_imgs = df_imgs[
+                    df_imgs["src"].str.contains(img_search, case=False, na=False) |
+                    df_imgs["alt"].str.contains(img_search, case=False, na=False)
+                ]
+
+            st.dataframe(df_imgs, use_container_width=True, hide_index=True)
+
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                st.download_button("Download CSV", data=to_csv_bytes(df_imgs), file_name="images.csv", mime="text/csv")
+            with col_d2:
+                urls_only = "\n".join(df_imgs["src"].tolist())
+                st.download_button("Download URL List", data=urls_only.encode(), file_name="image_urls.txt", mime="text/plain")
+        else:
+            st.info("No images found.")
+    else:
+        st.markdown('<div style="color:var(--muted,#5a7a65);font-size:0.85rem;">Enter a URL and click Scrape.</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# TAB: META / SEO
+# ─────────────────────────────────────────────
+with tab_meta:
+    st.markdown(f'<div class="wh-card"><h4>{ICON_META} Meta Data & SEO Analysis</h4>', unsafe_allow_html=True)
+
+    if "meta" in st.session_state.results:
+        meta = st.session_state.results["meta"]
+
+        col_m1, col_m2 = st.columns(2)
+        with col_m1:
+            st.markdown("**Core SEO**")
+            seo_items = {
+                "Title": meta.get("title","—"),
+                "Description": meta.get("description","—"),
+                "Keywords": meta.get("keywords","—"),
+                "Canonical": meta.get("canonical","—"),
+                "Robots": meta.get("robots","—"),
+                "Word Count": meta.get("word_count","—"),
+            }
+            for k, v in seo_items.items():
+                st.markdown(f'<div class="result-item"><b style="color:#5a7a65;font-size:0.72rem;">{k}</b><br>{v}</div>', unsafe_allow_html=True)
+
+        with col_m2:
+            st.markdown("**Open Graph**")
+            og = meta.get("_open_graph", {})
+            if og:
+                for k, v in og.items():
+                    st.markdown(f'<div class="result-item"><b style="color:#5a7a65;font-size:0.72rem;">{k}</b><br>{v}</div>', unsafe_allow_html=True)
+            else:
+                st.info("No Open Graph tags found.")
+
+        st.markdown("**H1 Tags**")
+        for h in meta.get("h1", []):
+            st.markdown(f'<div class="result-item">{h}</div>', unsafe_allow_html=True)
+
+        st.markdown("**H2 Tags**")
+        h2s = meta.get("h2", [])
+        for h in h2s[:10]:
+            st.markdown(f'<div class="result-item">{h}</div>', unsafe_allow_html=True)
+        if len(h2s) > 10:
+            st.caption(f"... and {len(h2s)-10} more")
+
+        if meta.get("_schema_org"):
+            with st.expander("Schema.org / JSON-LD Data"):
+                st.json(meta["_schema_org"])
+
+        st.download_button(
+            "Download Meta JSON",
+            data=to_json_bytes({k: v for k, v in meta.items() if not k.startswith("_")}),
+            file_name="meta.json",
+            mime="application/json",
         )
+    else:
+        st.markdown('<div style="color:var(--muted,#5a7a65);font-size:0.85rem;">Enter a URL and click Scrape.</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# TAB: CSS SELECTORS
+# ─────────────────────────────────────────────
+with tab_css:
+    st.markdown(f'<div class="wh-card"><h4>{ICON_SEARCH} CSS Selector Extractor</h4>', unsafe_allow_html=True)
+
+    if "url" not in st.session_state.results:
+        st.markdown('<div style="color:var(--muted,#5a7a65);font-size:0.85rem;">Scrape a page first, then use CSS selectors.</div>', unsafe_allow_html=True)
+    else:
+        selectors_input = st.text_area(
+            "CSS Selectors (one per line)",
+            placeholder="h1\n.product-title\n#price\narticle p\n[data-price]",
+            height=120,
+        )
+
+        if st.button("Extract Elements", key="css_btn"):
+            if selectors_input.strip():
+                selectors = [s for s in selectors_input.strip().splitlines() if s.strip()]
+                with st.spinner("Re-fetching & parsing..."):
+                    resp = fetch_page(st.session_state.results["url"], timeout=timeout, retries=retries)
+                if resp:
+                    soup = get_soup(resp)
+                    css_results = scrape_custom_css(soup, selectors)
+                    st.session_state.results["css"] = css_results
+
+        if "css" in st.session_state.results:
+            css_results = st.session_state.results["css"]
+            for sel, items in css_results.items():
+                badge = f'<span class="badge badge-ok">{len(items)} match{"es" if len(items)!=1 else ""}</span>'
+                if not items:
+                    badge = '<span class="badge badge-warn">0 matches</span>'
+                with st.expander(f"{sel}  {badge}", expanded=len(items) > 0):
+                    if items:
+                        for idx, item in enumerate(items[:50], 1):
+                            st.markdown(f'<div class="result-item"><span style="color:var(--muted,#5a7a65);font-size:0.7rem;">#{idx}</span><br>{item}</div>', unsafe_allow_html=True)
+                        if len(items) > 50:
+                            st.caption(f"Showing 50 of {len(items)} matches.")
+                    else:
+                        st.caption("No elements matched this selector.")
+
+            st.download_button(
+                "Download Results JSON",
+                data=to_json_bytes(css_results),
+                file_name="css_results.json",
+                mime="application/json",
+            )
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# TAB: ARTICLE TEXT
+# ─────────────────────────────────────────────
+with tab_article:
+    st.markdown(f'<div class="wh-card"><h4>{ICON_META} Article / Main Content Extraction</h4>', unsafe_allow_html=True)
+
+    art_url = st.text_input("Article URL (can differ from main URL)", key="art_url",
+                            value=st.session_state.results.get("url", ""),
+                            placeholder="https://example.com/article")
+
+    if st.button("Extract Article Text", key="art_btn"):
+        if art_url:
+            with st.spinner("Extracting main content via trafilatura..."):
+                article_text = scrape_article(art_url)
+            st.session_state.results["article_text"] = article_text
+            log(f"Article extraction: {len(article_text)} chars", "ok")
+
+    if "article_text" in st.session_state.results:
+        text = st.session_state.results["article_text"]
+        words = len(text.split())
+        st.markdown(f'<div style="font-family:\'Space Mono\',monospace;font-size:0.72rem;color:var(--muted,#5a7a65);margin-bottom:0.6rem;">{words} words extracted</div>', unsafe_allow_html=True)
+        st.text_area("Extracted Content", value=text, height=350, key="art_out")
+        st.download_button("Download as .txt", data=text.encode(), file_name="article.txt", mime="text/plain")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# TAB: SITE CRAWLER
+# ─────────────────────────────────────────────
+with tab_crawl:
+    st.markdown(f'<div class="wh-card"><h4>{ICON_CRAWL} Multi-Page Site Crawler</h4>', unsafe_allow_html=True)
+
+    crawl_url = st.text_input("Start URL", key="crawl_url",
+                               value=st.session_state.results.get("url", ""),
+                               placeholder="https://example.com")
+
+    col_c1, col_c2, col_c3 = st.columns(3)
+    with col_c1:
+        c_max = st.number_input("Max Pages", 1, 100, int(max_pages), key="c_max")
+    with col_c2:
+        c_same = st.checkbox("Same domain only", value=same_domain, key="c_same")
+    with col_c3:
+        c_robots = st.checkbox("Respect robots.txt", value=respect_robots, key="c_robots")
+
+    crawl_btn = st.button("Start Crawl", key="crawl_btn")
+
+    crawl_status = st.empty()
+    crawl_progress = st.empty()
+
+    if crawl_btn and crawl_url:
+        if not crawl_url.startswith("http"):
+            crawl_url = "https://" + crawl_url
+
+        log(f"Starting crawl: {crawl_url} (max {c_max} pages)", "ok")
+
+        prog = crawl_progress.progress(0)
+        status_ph = crawl_status.empty()
+
+        with st.spinner("Crawling..."):
+            crawl_results = crawl_site(
+                crawl_url,
+                max_pages=c_max,
+                same_domain=c_same,
+                delay=delay,
+                respect_robots=c_robots,
+                progress_bar=prog,
+                status_text=status_ph,
+            )
+
+        st.session_state.results["crawl"] = crawl_results
+        crawl_progress.empty()
+        crawl_status.empty()
+        log(f"Crawl complete: {len(crawl_results)} pages", "ok")
+
+    if "crawl" in st.session_state.results:
+        crawl_data = st.session_state.results["crawl"]
+        df_crawl = pd.DataFrame(crawl_data)
+
+        ok = sum(1 for p in crawl_data if str(p.get("status","")).startswith("2"))
+        errs = len(crawl_data) - ok
+
+        st.markdown(f"""
+        <div class="stat-row">
+            <div class="stat-pill"><span class="val">{len(crawl_data)}</span><span class="lbl">Pages Visited</span></div>
+            <div class="stat-pill"><span class="val">{ok}</span><span class="lbl">Success</span></div>
+            <div class="stat-pill"><span class="val">{errs}</span><span class="lbl">Errors</span></div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.dataframe(df_crawl, use_container_width=True, hide_index=True)
+        st.download_button("Download Crawl CSV", data=to_csv_bytes(df_crawl), file_name="crawl_results.csv", mime="text/csv")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# TAB: EMAILS & SOCIAL
+# ─────────────────────────────────────────────
+with tab_structured:
+    st.markdown(f'<div class="wh-card"><h4>{ICON_SEARCH} Emails, Phones & Social Profiles</h4>', unsafe_allow_html=True)
+
+    if "structured" in st.session_state.results:
+        s = st.session_state.results["structured"]
+
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            st.markdown("**Email Addresses**")
+            emails = s.get("emails", [])
+            if emails:
+                for e in emails:
+                    st.markdown(f'<div class="result-item"><a href="mailto:{e}">{e}</a></div>', unsafe_allow_html=True)
+            else:
+                st.caption("None found.")
+
+            st.markdown("**Phone Numbers**")
+            phones = s.get("phones", [])
+            if phones:
+                for p in phones[:15]:
+                    st.markdown(f'<div class="result-item">{p.strip()}</div>', unsafe_allow_html=True)
+            else:
+                st.caption("None found.")
+
+        with col_s2:
+            st.markdown("**Social Profiles**")
+            social = s.get("social_profiles", {})
+            if social:
+                for platform, handles in social.items():
+                    st.markdown(f'<div class="result-item"><b style="color:var(--accent,#00D4AA);font-size:0.8rem;">{platform.upper()}</b><br>{"  /  ".join(handles[:5])}</div>', unsafe_allow_html=True)
+            else:
+                st.caption("No social profiles detected.")
+
+        st.download_button(
+            "Download JSON",
+            data=to_json_bytes(s),
+            file_name="contact_data.json",
+            mime="application/json",
+        )
+    else:
+        st.markdown('<div style="color:var(--muted,#5a7a65);font-size:0.85rem;">Enter a URL and click Scrape.</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# SCRAPE HISTORY
+# ─────────────────────────────────────────────
+if st.session_state.history:
+    st.markdown("---")
+    st.markdown('<div style="font-family:\'Space Mono\',monospace;font-size:0.75rem;color:#5a7a65;margin-bottom:0.4rem;">SCRAPE HISTORY</div>', unsafe_allow_html=True)
+    hist_html = ""
+    for h in st.session_state.history[-10:][::-1]:
+        badge_cls = "badge-ok" if str(h["status"]).startswith("2") else "badge-err"
+        hist_html += f'<div class="result-item"><span class="badge {badge_cls}">{h["status"]}</span> <a href="{h["url"]}" target="_blank">{h["url"][:80]}</a> <span style="color:var(--muted,#5a7a65);font-size:0.7rem;float:right;">{h["ts"]}</span></div>'
+    st.markdown(hist_html, unsafe_allow_html=True)

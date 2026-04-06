@@ -1,1192 +1,1265 @@
 import streamlit as st
-import requests
-from bs4 import BeautifulSoup
 import pandas as pd
-import json
-import re
-import time
-import csv
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import matplotlib.ticker as mticker
+from matplotlib.colors import LinearSegmentedColormap
+import warnings
 import io
-import xml.etree.ElementTree as ET
-from urllib.parse import urljoin, urlparse, urlencode
-from urllib.robotparser import RobotFileParser
-from collections import defaultdict
-from datetime import datetime
-import hashlib
-import trafilatura
-from fake_useragent import UserAgent
-import lxml
+import streamlit.components.v1 as components
+warnings.filterwarnings('ignore')
 
 # ─────────────────────────────────────────────
-# PAGE CONFIG
+#  PAGE CONFIG
 # ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="WebHarvest Pro",
-    page_icon=None,
+    page_title="Adidas Sales Intelligence",
+    page_icon="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>A</text></svg>",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # ─────────────────────────────────────────────
-# SVG ICONS (no emojis)
+#  COLOUR TOKENS
 # ─────────────────────────────────────────────
-ICON_SPIDER = """<svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-<circle cx="14" cy="12" r="5" fill="#00D4AA" opacity="0.9"/>
-<circle cx="14" cy="12" r="2.5" fill="#001a12"/>
-<line x1="14" y1="7" x2="7" y2="3" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
-<line x1="14" y1="7" x2="21" y2="3" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
-<line x1="9" y1="11" x2="2" y2="9" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
-<line x1="19" y1="11" x2="26" y2="9" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
-<line x1="9" y1="14" x2="2" y2="16" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
-<line x1="19" y1="14" x2="26" y2="16" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
-<line x1="12" y1="17" x2="10" y2="24" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
-<line x1="16" y1="17" x2="18" y2="24" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
-</svg>"""
-
-ICON_LINK = """<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path d="M7.5 10.5C7.83 10.99 8.26 11.4 8.76 11.7C9.26 12 9.82 12.16 10.39 12.16C10.96 12.16 11.52 12 12.02 11.7L14.52 10.2C15.43 9.56 16 8.52 16 7.39C16 5.52 14.48 4 12.61 4C11.98 4 11.39 4.18 10.89 4.5L9.5 5.34" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M10.5 7.5C10.17 7.01 9.74 6.6 9.24 6.3C8.74 6 8.18 5.84 7.61 5.84C7.04 5.84 6.48 6 5.98 6.3L3.48 7.8C2.57 8.44 2 9.48 2 10.61C2 12.48 3.52 14 5.39 14C6.02 14 6.61 13.82 7.11 13.5L8.5 12.66" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>"""
-
-ICON_TABLE = """<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-<rect x="2" y="2" width="14" height="14" rx="2" stroke="#00D4AA" stroke-width="1.5"/>
-<line x1="2" y1="6.5" x2="16" y2="6.5" stroke="#00D4AA" stroke-width="1.5"/>
-<line x1="7" y1="6.5" x2="7" y2="16" stroke="#00D4AA" stroke-width="1.2"/>
-<line x1="11.5" y1="6.5" x2="11.5" y2="16" stroke="#00D4AA" stroke-width="1.2"/>
-</svg>"""
-
-ICON_IMAGE = """<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-<rect x="2" y="3" width="14" height="12" rx="2" stroke="#00D4AA" stroke-width="1.5"/>
-<circle cx="6.5" cy="7.5" r="1.5" fill="#00D4AA"/>
-<path d="M2 12L6 8.5L9 11.5L12 9L16 13" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>"""
-
-ICON_META = """<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-<circle cx="9" cy="9" r="7" stroke="#00D4AA" stroke-width="1.5"/>
-<line x1="9" y1="8" x2="9" y2="13" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
-<circle cx="9" cy="5.5" r="1" fill="#00D4AA"/>
-</svg>"""
-
-ICON_CRAWL = """<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-<circle cx="9" cy="9" r="7" stroke="#00D4AA" stroke-width="1.5"/>
-<path d="M9 2C9 2 12 5.5 12 9C12 12.5 9 16 9 16" stroke="#00D4AA" stroke-width="1.2" stroke-linecap="round"/>
-<path d="M9 2C9 2 6 5.5 6 9C6 12.5 9 16 9 16" stroke="#00D4AA" stroke-width="1.2" stroke-linecap="round"/>
-<line x1="2" y1="9" x2="16" y2="9" stroke="#00D4AA" stroke-width="1.2"/>
-</svg>"""
-
-ICON_EXPORT = """<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-<path d="M9 2V11M9 11L6 8M9 11L12 8" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M3 13V14C3 15.1 3.9 16 5 16H13C14.1 16 15 15.1 15 14V13" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
-</svg>"""
-
-ICON_SEARCH = """<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-<circle cx="8" cy="8" r="5.5" stroke="#00D4AA" stroke-width="1.5"/>
-<line x1="12.5" y1="12.5" x2="16" y2="16" stroke="#00D4AA" stroke-width="2" stroke-linecap="round"/>
-</svg>"""
-
-ICON_SETTINGS = """<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-<circle cx="9" cy="9" r="2.5" stroke="#00D4AA" stroke-width="1.5"/>
-<path d="M9 1.5V3M9 15V16.5M1.5 9H3M15 9H16.5M3.2 3.2L4.3 4.3M13.7 13.7L14.8 14.8M3.2 14.8L4.3 13.7M13.7 4.3L14.8 3.2" stroke="#00D4AA" stroke-width="1.5" stroke-linecap="round"/>
-</svg>"""
+DARK_BG = "#0A0A0F"
+CARD_BG = "#12121A"
+SIDE_BG = "#0D0D14"
+A1      = "#00E5FF"   # cyan
+A2      = "#FF3CAC"   # pink
+A3      = "#7B5EA7"   # violet
+A4      = "#F9C846"   # gold
+A5      = "#39FF14"   # neon green
+TPRI    = "#F0F0F5"
+TSEC    = "#8A8A9A"
+BDR     = "#1E1E2E"
+PALETTE = [A1, A2, A4, A5, A3, "#FF6B35"]
 
 # ─────────────────────────────────────────────
-# CSS STYLING
+#  INLINE SVG ICON HELPERS
 # ─────────────────────────────────────────────
-st.markdown("""
+def svg(path_d, size=16, color=None, vb="0 0 24 24"):
+    c = color or A1
+    s = str(size)
+    return (
+        '<svg width="' + s + '" height="' + s + '" viewBox="' + vb +
+        '" fill="none" xmlns="http://www.w3.org/2000/svg"'
+        ' style="vertical-align:middle;margin-right:6px;">'
+        '<path d="' + path_d + '" stroke="' + c + '" stroke-width="1.8"'
+        ' stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    )
+
+def svg_fill(path_d, size=16, color=None, vb="0 0 24 24"):
+    c = color or A1
+    s = str(size)
+    return (
+        '<svg width="' + s + '" height="' + s + '" viewBox="' + vb +
+        '" fill="' + c + '" xmlns="http://www.w3.org/2000/svg"'
+        ' style="vertical-align:middle;margin-right:6px;">'
+        '<path d="' + path_d + '"/></svg>'
+    )
+
+# ─── Icon path constants ───────────────────────
+P_UPLOAD  = "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"
+P_CHART   = "M3 3v18h18M9 17V9m4 8v-5m4 5V5"
+P_GLOBE   = "M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"
+P_SHOE    = "M3 17h18l-3-8H6L3 17zM6 9l2-5h8l2 5"
+P_MAP     = "M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4zM8 2v16M16 6v16"
+P_CITY    = "M3 21h18M9 21V7l6-4v18M9 7l6-4M3 21V11l6-4M21 21V11l-6-4"
+P_PROFIT  = "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"
+P_SCATTER = "M8 8m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0M16 16m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0M8 16m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0M16 8m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"
+P_TREND   = "M22 7l-9 9-5-5L1 17M22 7h-6M22 7v6"
+P_FIND    = "M10 21a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-4.35-4.35"
+P_STAR    = "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+P_TAG     = "M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82zM7 7h.01"
+P_FLASH   = "M13 2L3 14h9l-1 8 10-12h-9l1-8z"
+P_ALERT   = "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"
+P_NAV     = "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"
+P_FILE    = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8"
+P_DOLLAR  = "M12 1v22M16 5H9a4 4 0 0 0 0 8h6a4 4 0 0 1 0 8H5"
+P_BOX     = "M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"
+P_WAVE    = "M22 12h-4l-3 9L9 3l-3 9H2"
+
+def ct(icon, label, color=None):
+    """Chart title with inline SVG."""
+    c = color or A1
+    return f'<div class="chart-title">{svg(icon, 15, c)}<span style="color:{c}">{label}</span></div>'
+
+def sl(icon, label, color=None):
+    """Section label with inline SVG."""
+    c = color or A2
+    return f'<div class="section-label">{svg(icon, 13, c)}<span>{label}</span></div>'
+
+# ─────────────────────────────────────────────
+#  ADIDAS-STYLE LOGO SVG
+# ─────────────────────────────────────────────
+def _logo(w, h, rx, sw, pts, lines):
+    """Build Adidas triangle logo SVG as a plain string (no nested f-string issues)."""
+    ln_tags = "".join(
+        '<line x1="' + str(x1) + '" y1="' + str(y1) +
+        '" x2="' + str(x2) + '" y2="' + str(y2) +
+        '" stroke="' + A1 + '" stroke-width="' + str(sw) +
+        '" stroke-linecap="round"/>'
+        for x1, y1, x2, y2 in lines
+    )
+    return (
+        '<svg width="' + str(w) + '" height="' + str(h) +
+        '" viewBox="0 0 ' + str(w) + ' ' + str(h) +
+        '" fill="none" xmlns="http://www.w3.org/2000/svg">'
+        '<rect width="' + str(w) + '" height="' + str(h) +
+        '" rx="' + str(rx) + '" fill="' + CARD_BG +
+        '" stroke="' + A1 + '" stroke-width="1.5"/>'
+        '<polygon points="' + pts + '" fill="none" stroke="' + A1 +
+        '" stroke-width="' + str(sw) + '" stroke-linejoin="round"/>'
+        + ln_tags + '</svg>'
+    )
+
+LOGO_SVG = _logo(54, 54, 11, 2.2,
+    "27,10 43,42 11,42",
+    [(18,42,36,42),(21,35,33,35),(24,28,30,28)])
+
+LOGO_LG  = _logo(82, 82, 18, 2.5,
+    "41,14 62,64 20,64",
+    [(27,64,55,64),(31,54,51,54),(35,44,47,44)])
+
+# ─────────────────────────────────────────────
+#  GLOBAL CSS
+# ─────────────────────────────────────────────
+st.markdown(f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
 
-:root {
-    --bg: #060d0a;
-    --surface: #0d1f18;
-    --surface2: #112b20;
-    --accent: #00D4AA;
-    --accent2: #00ff88;
-    --text: #d4ead6;
-    --muted: #5a7a65;
-    --border: #1a3828;
-    --danger: #ff4d6d;
-    --warn: #ffb347;
-}
+html, body, [class*="css"] {{
+    background-color: {DARK_BG} !important;
+    color: {TPRI} !important;
+    font-family: 'Rajdhani', sans-serif;
+}}
+.stApp {{ background-color: {DARK_BG}; }}
 
-html, body, .stApp {
-    background-color: var(--bg) !important;
-    color: var(--text) !important;
-    font-family: 'DM Sans', sans-serif;
-}
+/* Sidebar */
+section[data-testid="stSidebar"] {{
+    background: {SIDE_BG} !important;
+    border-right: 1px solid {BDR};
+}}
+section[data-testid="stSidebar"] * {{ color: {TPRI} !important; }}
 
-/* Hide default streamlit chrome */
-#MainMenu, footer, header { visibility: hidden; }
-.block-container { padding: 1.5rem 2rem 3rem 2rem !important; max-width: 1400px; }
+/* File uploader */
+div[data-testid="stFileUploader"] {{
+    background: {CARD_BG} !important;
+    border: 2px dashed {A1}55 !important;
+    border-radius: 12px !important;
+}}
+div[data-testid="stFileUploader"]:hover {{
+    border-color: {A1}AA !important;
+    box-shadow: 0 0 20px {A1}18 !important;
+}}
 
-/* ── HEADER ── */
-.wh-header {
+/* Dashboard header */
+.dashboard-header {{
+    background: linear-gradient(135deg, {CARD_BG} 0%, #1A0A2E 100%);
+    border: 1px solid {A1}33;
+    border-radius: 16px;
+    padding: 24px 34px;
+    margin-bottom: 22px;
+    position: relative;
+    overflow: hidden;
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 1.4rem 0 1rem 0;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 1.6rem;
-}
-.wh-header h1 {
-    font-family: 'Space Mono', monospace;
-    font-size: 1.7rem;
-    color: var(--accent);
+    gap: 20px;
+}}
+.dashboard-header::before {{
+    content: '';
+    position: absolute;
+    top: -70px; right: -70px;
+    width: 230px; height: 230px;
+    background: radial-gradient(circle, {A1}18, transparent 70%);
+    border-radius: 50%;
+    pointer-events: none;
+}}
+.header-text h1 {{
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.75rem;
+    font-weight: 900;
+    background: linear-gradient(90deg, {A1}, {A2});
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
     margin: 0;
-    letter-spacing: -0.5px;
-}
-.wh-header span.sub {
-    font-size: 0.78rem;
-    color: var(--muted);
-    font-family: 'Space Mono', monospace;
-    border: 1px solid var(--border);
-    padding: 2px 8px;
-    border-radius: 3px;
-    margin-left: 6px;
-}
-
-/* ── CARDS ── */
-.wh-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1.2rem 1.4rem;
-    margin-bottom: 1rem;
-}
-.wh-card h4 {
-    font-family: 'Space Mono', monospace;
+    letter-spacing: 3px;
+}}
+.header-text p {{
+    color: {TSEC};
     font-size: 0.82rem;
-    color: var(--accent);
-    text-transform: uppercase;
+    margin: 5px 0 0;
     letter-spacing: 1px;
-    margin: 0 0 0.8rem 0;
+    font-family: 'JetBrains Mono', monospace;
+}}
+
+/* KPI grid */
+.kpi-grid {{
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 13px;
+    margin-bottom: 22px;
+}}
+.kpi-card {{
+    background: {CARD_BG};
+    border-radius: 12px;
+    padding: 18px 16px 22px;
+    border: 1px solid {BDR};
+    position: relative;
+    overflow: hidden;
+}}
+.kpi-card::after {{
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 3px;
+}}
+.kpi-c1::after {{ background: {A1}; }}
+.kpi-c2::after {{ background: {A2}; }}
+.kpi-c3::after {{ background: {A4}; }}
+.kpi-c4::after {{ background: {A5}; }}
+.kpi-c5::after {{ background: {A3}; }}
+.kpi-icon {{ margin-bottom: 10px; display:block; }}
+.kpi-label {{
+    font-size: 0.6rem;
+    color: {TSEC};
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 7px;
+}}
+.kpi-value {{
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: {TPRI};
+    line-height: 1;
+}}
+.kpi-sub {{
+    font-size: 0.66rem;
+    color: {TSEC};
+    margin-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+}}
+
+/* Chart title */
+.chart-title {{
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.7rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
     display: flex;
     align-items: center;
-    gap: 7px;
-}
+}}
 
-/* ── STAT PILLS ── */
-.stat-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 1rem; }
-.stat-pill {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.55rem 1rem;
-    font-family: 'Space Mono', monospace;
-    font-size: 0.78rem;
-    color: var(--text);
+/* Section label */
+.section-label {{
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.6rem;
+    color: {A2};
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    border-left: 3px solid {A2};
+    padding-left: 10px;
+    margin: 20px 0 14px;
+    display: flex;
+    align-items: center;
+}}
+
+/* Findings */
+.finding-card {{
+    background: linear-gradient(135deg, #12121A, #1a0a2e);
+    border: 1px solid {A1}44;
+    border-radius: 10px;
+    padding: 15px 18px;
+    margin-bottom: 12px;
+}}
+.finding-card h4 {{
+    color: {A1};
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.68rem;
+    letter-spacing: 2px;
+    margin: 0 0 8px;
+    display: flex;
+    align-items: center;
+}}
+.finding-card p {{
+    color: {TPRI};
+    font-size: 0.88rem;
+    margin: 0;
+    line-height: 1.6;
+}}
+
+/* Upload screen */
+.upload-wrap {{
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    min-width: 120px;
-}
-.stat-pill .val { font-size: 1.3rem; color: var(--accent2); font-weight: 700; }
-.stat-pill .lbl { color: var(--muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.5px; }
-
-/* ── BADGE ── */
-.badge {
-    display: inline-block;
-    font-family: 'Space Mono', monospace;
-    font-size: 0.68rem;
-    padding: 2px 7px;
-    border-radius: 3px;
-    font-weight: 700;
-}
-.badge-ok   { background: #003d2a; color: var(--accent2); border: 1px solid #00a060; }
-.badge-warn { background: #3d2a00; color: var(--warn);    border: 1px solid #a06000; }
-.badge-err  { background: #3d0010; color: var(--danger);  border: 1px solid #a00030; }
-
-/* ── INPUTS ── */
-.stTextInput > div > div > input,
-.stTextArea > div > div > textarea,
-.stSelectbox > div > div > div,
-.stMultiSelect > div > div > div {
-    background: var(--surface2) !important;
-    border: 1px solid var(--border) !important;
-    color: var(--text) !important;
-    border-radius: 6px !important;
-    font-family: 'DM Sans', sans-serif !important;
-}
-.stTextInput > div > div > input:focus,
-.stTextArea > div > div > textarea:focus {
-    border-color: var(--accent) !important;
-    box-shadow: 0 0 0 2px rgba(0,212,170,0.15) !important;
-}
-
-/* ── BUTTON ── */
-.stButton > button {
-    background: var(--accent) !important;
-    color: #000 !important;
-    font-family: 'Space Mono', monospace !important;
-    font-size: 0.82rem !important;
-    font-weight: 700 !important;
-    border: none !important;
-    border-radius: 6px !important;
-    padding: 0.55rem 1.4rem !important;
-    letter-spacing: 0.5px;
-    transition: all 0.15s ease;
-}
-.stButton > button:hover {
-    background: var(--accent2) !important;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 16px rgba(0,212,170,0.3) !important;
-}
-.stButton > button[kind="secondary"] {
-    background: var(--surface2) !important;
-    color: var(--accent) !important;
-    border: 1px solid var(--border) !important;
-}
-
-/* ── TABS ── */
-.stTabs [data-baseweb="tab-list"] {
-    background: var(--surface) !important;
-    border-radius: 8px 8px 0 0;
-    border-bottom: 1px solid var(--border);
-    gap: 0;
-    padding: 0 0.5rem;
-}
-.stTabs [data-baseweb="tab"] {
-    background: transparent !important;
-    color: var(--muted) !important;
-    font-family: 'Space Mono', monospace !important;
-    font-size: 0.75rem !important;
-    border-radius: 0 !important;
-    border-bottom: 2px solid transparent !important;
-    padding: 0.7rem 1rem !important;
-}
-.stTabs [aria-selected="true"] {
-    color: var(--accent) !important;
-    border-bottom: 2px solid var(--accent) !important;
-    background: transparent !important;
-}
-.stTabs [data-baseweb="tab-panel"] {
-    background: var(--surface) !important;
-    border: 1px solid var(--border) !important;
-    border-top: none !important;
-    border-radius: 0 0 8px 8px;
-    padding: 1.2rem;
-}
-
-/* ── SIDEBAR ── */
-section[data-testid="stSidebar"] {
-    background: var(--surface) !important;
-    border-right: 1px solid var(--border) !important;
-}
-section[data-testid="stSidebar"] .stSelectbox label,
-section[data-testid="stSidebar"] .stSlider label,
-section[data-testid="stSidebar"] .stCheckbox label,
-section[data-testid="stSidebar"] .stNumberInput label,
-section[data-testid="stSidebar"] .stTextInput label {
-    color: var(--text) !important;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.85rem;
-}
-
-/* ── DATAFRAME ── */
-.stDataFrame { border: 1px solid var(--border) !important; border-radius: 6px; overflow: hidden; }
-.stDataFrame thead th {
-    background: var(--surface2) !important;
-    color: var(--accent) !important;
-    font-family: 'Space Mono', monospace !important;
-    font-size: 0.75rem !important;
-}
-
-/* ── LOG BOX ── */
-.log-box {
-    background: #030a06;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.9rem 1rem;
-    font-family: 'Space Mono', monospace;
-    font-size: 0.72rem;
-    color: var(--accent);
-    max-height: 220px;
-    overflow-y: auto;
-    line-height: 1.7;
-}
-.log-box .log-ok   { color: var(--accent2); }
-.log-box .log-warn { color: var(--warn); }
-.log-box .log-err  { color: var(--danger); }
-.log-box .log-info { color: var(--muted); }
-
-/* ── EXPANDER ── */
-.streamlit-expanderHeader {
-    background: var(--surface2) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 6px !important;
-    color: var(--text) !important;
-    font-family: 'DM Sans', sans-serif !important;
-}
-.streamlit-expanderContent {
-    background: var(--surface) !important;
-    border: 1px solid var(--border) !important;
-    border-top: none !important;
-}
-
-/* ── PROGRESS ── */
-.stProgress > div > div { background: var(--accent) !important; }
-
-/* ── DIVIDER ── */
-hr { border-color: var(--border) !important; }
-
-/* ── ALERTS ── */
-.stAlert { border-radius: 6px !important; }
-
-/* ── MULTISELECT TAGS ── */
-.stMultiSelect span[data-baseweb="tag"] {
-    background: var(--surface2) !important;
-    color: var(--accent) !important;
-    border: 1px solid var(--border) !important;
-}
-
-/* ── NUMBER INPUT ── */
-.stNumberInput input {
-    background: var(--surface2) !important;
-    color: var(--text) !important;
-    border: 1px solid var(--border) !important;
-}
-
-/* ── SLIDER ── */
-.stSlider [data-baseweb="slider"] div[role="slider"] {
-    background: var(--accent) !important;
-    border-color: var(--accent) !important;
-}
-
-/* ── CHECKBOX ── */
-.stCheckbox > label > div:first-child {
-    border-color: var(--accent) !important;
-}
-
-/* ── TOOLTIP ── */
-.tooltip-wrap { position: relative; display: inline-block; }
-.tooltip-wrap .tooltip-text {
-    visibility: hidden;
-    width: 200px;
-    background: var(--surface2);
-    color: var(--text);
-    font-size: 0.72rem;
+    align-items: center;
+    padding: 50px 20px 30px;
     text-align: center;
-    border-radius: 5px;
-    padding: 5px 8px;
-    position: absolute;
-    z-index: 1;
-    bottom: 125%;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 1px solid var(--border);
-}
-.tooltip-wrap:hover .tooltip-text { visibility: visible; }
+}}
+.upload-wrap h2 {{
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.4rem;
+    font-weight: 900;
+    background: linear-gradient(90deg, {A1}, {A2});
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: 3px;
+    margin: 18px 0 8px;
+}}
+.upload-wrap p {{
+    color: {TSEC};
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    letter-spacing: 1px;
+    margin-bottom: 28px;
+    max-width: 480px;
+}}
+.upload-badge {{
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: {CARD_BG};
+    border: 1px solid {BDR};
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    color: {TSEC};
+    margin: 4px;
+}}
 
-/* ── RESULT ITEM ── */
-.result-item {
-    padding: 0.65rem 0.9rem;
-    border-left: 3px solid var(--accent);
-    background: var(--surface2);
-    border-radius: 0 5px 5px 0;
-    margin-bottom: 0.5rem;
-    font-size: 0.84rem;
-}
-.result-item a { color: var(--accent); text-decoration: none; font-family: 'Space Mono', monospace; font-size: 0.75rem; }
-.result-item a:hover { color: var(--accent2); }
+/* Streamlit widget overrides */
+div[data-testid="stSelectbox"] > div,
+div[data-testid="stMultiSelect"] > div {{
+    background: {CARD_BG} !important;
+    border-color: {BDR} !important;
+    border-radius: 8px !important;
+}}
+div.stButton > button {{
+    background: linear-gradient(135deg, {A1}22, {A2}22);
+    border: 1px solid {A1}55;
+    color: {A1};
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.6rem;
+    letter-spacing: 2px;
+    border-radius: 8px;
+}}
+div[data-testid="stDateInput"] input {{
+    background: {CARD_BG} !important;
+    color: {TPRI} !important;
+    border-color: {BDR} !important;
+    border-radius: 6px !important;
+}}
+label, .stRadio label, .stSelectbox label {{
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.68rem !important;
+    color: {TSEC} !important;
+    letter-spacing: 1px !important;
+}}
+/* Data cleaning report */
+.clean-panel {{
+    background: {CARD_BG};
+    border: 1px solid {A5}44;
+    border-radius: 14px;
+    padding: 22px 26px;
+    margin-bottom: 22px;
+}}
+.clean-panel-title {{
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.72rem;
+    color: {A5};
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}}
+.clean-grid {{
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 14px;
+}}
+.clean-stat {{
+    background: {DARK_BG};
+    border-radius: 8px;
+    padding: 12px 14px;
+    border-left: 3px solid {A5};
+}}
+.clean-stat-val {{
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: {A5};
+}}
+.clean-stat-lbl {{
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    color: {TSEC};
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 4px;
+}}
+.clean-step {{
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid {BDR};
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+}}
+.clean-step:last-child {{ border-bottom: none; }}
+.clean-step-num {{
+    background: {A5}22;
+    color: {A5};
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-size: 0.6rem;
+    font-weight: 700;
+    flex-shrink: 0;
+    min-width: 24px;
+    text-align: center;
+}}
+.clean-step-ok  {{ color: {A5}; }}
+.clean-step-warn{{ color: {A4}; }}
+.clean-step-info{{ color: {TSEC}; }}
+
 </style>
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# SESSION STATE
+#  MATPLOTLIB DARK DEFAULTS
 # ─────────────────────────────────────────────
-if "results" not in st.session_state:
-    st.session_state.results = {}
-if "logs" not in st.session_state:
-    st.session_state.logs = []
-if "history" not in st.session_state:
-    st.session_state.history = []
-if "crawl_visited" not in st.session_state:
-    st.session_state.crawl_visited = set()
-
-# ─────────────────────────────────────────────
-# UTILITIES
-# ─────────────────────────────────────────────
-def log(msg: str, level: str = "ok"):
-    ts = datetime.now().strftime("%H:%M:%S")
-    st.session_state.logs.append({"ts": ts, "msg": msg, "level": level})
-
-def get_session():
-    ua = UserAgent()
-    s = requests.Session()
-    s.headers.update({
-        "User-Agent": ua.random,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-    })
-    return s
-
-def check_robots(url: str, ua: str = "*") -> bool:
-    parsed = urlparse(url)
-    robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
-    try:
-        rp = RobotFileParser()
-        rp.set_url(robots_url)
-        rp.read()
-        return rp.can_fetch(ua, url)
-    except Exception:
-        return True  # assume allowed if robots.txt unreadable
-
-def fetch_page(url: str, timeout: int = 15, retries: int = 2, delay: float = 1.0):
-    s = get_session()
-    for attempt in range(retries):
-        try:
-            resp = s.get(url, timeout=timeout, allow_redirects=True)
-            resp.raise_for_status()
-            log(f"GET {url} -> {resp.status_code} ({len(resp.content)//1024}KB)", "ok")
-            return resp
-        except requests.exceptions.HTTPError as e:
-            log(f"HTTP error ({e}) on attempt {attempt+1}", "err")
-        except requests.exceptions.ConnectionError:
-            log(f"Connection error on attempt {attempt+1}", "err")
-        except requests.exceptions.Timeout:
-            log(f"Timeout on attempt {attempt+1}", "warn")
-        except Exception as e:
-            log(f"Unexpected: {e}", "err")
-        if attempt < retries - 1:
-            time.sleep(delay)
-    return None
-
-def get_soup(resp) -> BeautifulSoup:
-    encoding = resp.encoding or "utf-8"
-    return BeautifulSoup(resp.content, "lxml", from_encoding=encoding)
-
-def url_fingerprint(url: str) -> str:
-    return hashlib.md5(url.strip().lower().encode()).hexdigest()
+plt.rcParams.update({
+    'figure.facecolor': DARK_BG,
+    'axes.facecolor':   CARD_BG,
+    'axes.edgecolor':   BDR,
+    'axes.labelcolor':  TSEC,
+    'axes.titlecolor':  TPRI,
+    'xtick.color':      TSEC,
+    'ytick.color':      TSEC,
+    'text.color':       TPRI,
+    'grid.color':       BDR,
+    'grid.linewidth':   0.5,
+    'legend.facecolor': CARD_BG,
+    'legend.edgecolor': BDR,
+})
 
 # ─────────────────────────────────────────────
-# SCRAPER FUNCTIONS
+#  HELPERS
 # ─────────────────────────────────────────────
-def scrape_links(soup: BeautifulSoup, base_url: str) -> list[dict]:
-    links = []
-    seen = set()
-    for tag in soup.find_all("a", href=True):
-        href = tag["href"].strip()
-        abs_url = urljoin(base_url, href)
-        if abs_url in seen:
-            continue
-        seen.add(abs_url)
-        links.append({
-            "text": tag.get_text(strip=True)[:100] or "(no text)",
-            "url": abs_url,
-            "rel": tag.get("rel", ["—"])[0] if tag.get("rel") else "—",
-            "title": tag.get("title", "")[:60],
-            "external": urlparse(abs_url).netloc != urlparse(base_url).netloc,
-        })
-    return links
+def show_fig(fig):
+    st.pyplot(fig, use_container_width=True)
+    plt.close(fig)
 
-def scrape_tables(soup: BeautifulSoup) -> list[pd.DataFrame]:
-    tables = []
-    for tbl in soup.find_all("table"):
-        try:
-            df = pd.read_html(str(tbl))[0]
-            tables.append(df)
-        except Exception:
-            pass
-    return tables
+def fmt_num(n):
+    if n >= 1e9: return f"${n/1e9:.1f}B"
+    if n >= 1e6: return f"${n/1e6:.1f}M"
+    if n >= 1e3: return f"${n/1e3:.1f}K"
+    return f"${n:.2f}"
 
-def scrape_images(soup: BeautifulSoup, base_url: str) -> list[dict]:
-    imgs = []
-    for img in soup.find_all("img"):
-        src = img.get("src") or img.get("data-src") or img.get("data-lazy-src") or ""
-        if not src:
-            continue
-        imgs.append({
-            "src": urljoin(base_url, src),
-            "alt": img.get("alt", "")[:80],
-            "width": img.get("width", "—"),
-            "height": img.get("height", "—"),
-            "loading": img.get("loading", "—"),
-        })
-    return imgs
+@st.cache_data
+def load_and_clean(file_bytes):
+    """
+    Standard 13-step data cleaning pipeline.
+    Returns (clean_df, report_dict).
+    """
+    # ── 1. Load raw Excel ─────────────────────────────────────
+    raw = pd.read_excel(io.BytesIO(file_bytes))
+    report = {}
 
-def scrape_meta(soup: BeautifulSoup, url: str) -> dict:
-    meta = {}
-    meta["url"] = url
-    meta["title"] = soup.title.string.strip() if soup.title else "—"
+    # Snapshot BEFORE any changes
+    report['raw_rows'] = len(raw)
+    report['raw_cols'] = len(raw.columns)
 
-    for m in soup.find_all("meta"):
-        name = (m.get("name") or m.get("property") or "").lower()
-        content = m.get("content", "")
-        if name:
-            meta[name] = content[:300]
-
-    # Open Graph
-    og = {k: v for k, v in meta.items() if k.startswith("og:")}
-    meta["_open_graph"] = og
-
-    # Twitter Card
-    tw = {k: v for k, v in meta.items() if k.startswith("twitter:")}
-    meta["_twitter"] = tw
-
-    # Canonical
-    canonical = soup.find("link", rel="canonical")
-    meta["canonical"] = canonical["href"] if canonical else "—"
-
-    # Headings
-    meta["h1"] = [h.get_text(strip=True) for h in soup.find_all("h1")]
-    meta["h2"] = [h.get_text(strip=True) for h in soup.find_all("h2")]
-
-    # Word count approximation
-    body_text = soup.get_text(separator=" ", strip=True)
-    meta["word_count"] = len(body_text.split())
-
-    # Schema.org JSON-LD
-    schemas = []
-    for s in soup.find_all("script", type="application/ld+json"):
-        try:
-            schemas.append(json.loads(s.string))
-        except Exception:
-            pass
-    meta["_schema_org"] = schemas
-
-    return meta
-
-def scrape_custom_css(soup: BeautifulSoup, selectors: list[str]) -> dict:
-    results = {}
-    for sel in selectors:
-        sel = sel.strip()
-        if not sel:
-            continue
-        try:
-            found = soup.select(sel)
-            results[sel] = [
-                el.get_text(separator=" ", strip=True)[:400]
-                for el in found
-            ]
-            log(f"Selector '{sel}' -> {len(found)} match(es)", "ok")
-        except Exception as e:
-            results[sel] = []
-            log(f"Selector '{sel}' error: {e}", "err")
-    return results
-
-def scrape_article(url: str) -> str:
-    try:
-        downloaded = trafilatura.fetch_url(url)
-        text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
-        return text or "— No article text extracted —"
-    except Exception as e:
-        return f"Error: {e}"
-
-def crawl_site(
-    start_url: str,
-    max_pages: int = 10,
-    same_domain: bool = True,
-    delay: float = 1.0,
-    respect_robots: bool = True,
-    progress_bar=None,
-    status_text=None,
-) -> list[dict]:
-    visited = {}
-    queue = [start_url]
-    base_domain = urlparse(start_url).netloc
-
-    page_num = 0
-    while queue and page_num < max_pages:
-        url = queue.pop(0)
-        fp = url_fingerprint(url)
-        if fp in visited:
-            continue
-
-        if respect_robots and not check_robots(url):
-            log(f"Robots.txt disallows: {url}", "warn")
-            visited[fp] = {"url": url, "status": "robots_blocked", "title": "—", "links": 0}
-            continue
-
-        if status_text:
-            status_text.markdown(f'<div class="log-box"><span class="log-info">Crawling [{page_num+1}/{max_pages}]:</span> <span class="log-ok">{url[:80]}</span></div>', unsafe_allow_html=True)
-
-        resp = fetch_page(url, delay=delay)
-        page_num += 1
-
-        if progress_bar:
-            progress_bar.progress(page_num / max_pages)
-
-        if resp is None:
-            visited[fp] = {"url": url, "status": "error", "title": "—", "links": 0}
-            continue
-
-        soup = get_soup(resp)
-        title = soup.title.string.strip() if soup.title else "—"
-        links_found = scrape_links(soup, url)
-
-        visited[fp] = {
-            "url": url,
-            "status": resp.status_code,
-            "title": title[:80],
-            "links": len(links_found),
-            "content_type": resp.headers.get("Content-Type", "—"),
-            "size_kb": len(resp.content) // 1024,
-        }
-
-        for lnk in links_found:
-            lurl = lnk["url"]
-            lp = urlparse(lurl)
-            if url_fingerprint(lurl) in visited:
-                continue
-            if lp.scheme not in ("http", "https"):
-                continue
-            if same_domain and lp.netloc != base_domain:
-                continue
-            if lurl not in queue:
-                queue.append(lurl)
-
-        time.sleep(delay)
-
-    return list(visited.values())
-
-def extract_structured_data(soup: BeautifulSoup) -> dict:
-    """Extract emails, phones, social links, addresses from page."""
-    text = soup.get_text(separator=" ")
-    emails = list(set(re.findall(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", text)))
-    phones = list(set(re.findall(r"(?:\+?\d[\d\s\-().]{7,}\d)", text)))[:20]
-    
-    social_patterns = {
-        "twitter": r"twitter\.com/([a-zA-Z0-9_]{1,50})",
-        "linkedin": r"linkedin\.com/(?:in|company)/([a-zA-Z0-9_\-]{1,100})",
-        "github": r"github\.com/([a-zA-Z0-9_\-]{1,100})",
-        "instagram": r"instagram\.com/([a-zA-Z0-9_.]{1,50})",
-        "facebook": r"facebook\.com/([a-zA-Z0-9_.]{1,100})",
-        "youtube": r"youtube\.com/(?:@|channel/|c/)([a-zA-Z0-9_\-]{1,100})",
+    # ── 2. Normalise column names ─────────────────────────────
+    raw.columns = raw.columns.str.strip()
+    col_aliases = {
+        'invoice date':     'Invoice Date',
+        'date':             'Invoice Date',
+        'retailerid':       'Retailer ID',
+        'retailer id':      'Retailer ID',
+        'price per unit':   'Price per Unit',
+        'units sold':       'Units Sold',
+        'total sales':      'Total Sales',
+        'operating profit': 'Operating Profit',
+        'operating margin': 'Operating Margin',
+        'sales method':     'Sales Method',
     }
-    social = {}
-    for platform, pattern in social_patterns.items():
-        found = list(set(re.findall(pattern, text, re.IGNORECASE)))
-        if found:
-            social[platform] = found
+    raw.columns = [col_aliases.get(c.lower(), c) for c in raw.columns]
+    report['columns_after_normalise'] = list(raw.columns)
 
-    return {"emails": emails, "phones": phones, "social_profiles": social}
+    # ── 3. Drop fully-empty rows & columns ───────────────────
+    before = len(raw)
+    raw.dropna(how='all', inplace=True)
+    raw.dropna(axis=1, how='all', inplace=True)
+    report['empty_rows_dropped'] = before - len(raw)
+
+    # ── 4. Strip string whitespace ────────────────────────────
+    str_cols = raw.select_dtypes(include='object').columns.tolist()
+    for col in str_cols:
+        raw[col] = raw[col].astype(str).str.strip()
+        raw[col] = raw[col].replace({'nan': np.nan, 'None': np.nan, '': np.nan})
+
+    # ── 5. Standardise categoricals to Title Case ─────────────
+    cat_cols = ['Retailer', 'Region', 'State', 'City', 'Product', 'Sales Method']
+    for col in cat_cols:
+        if col in raw.columns:
+            raw[col] = raw[col].str.title()
+
+    # ── 6. Remove exact duplicate rows ───────────────────────
+    before = len(raw)
+    raw.drop_duplicates(inplace=True)
+    report['duplicates_dropped'] = before - len(raw)
+
+    # ── 7. Parse & validate Invoice Date ─────────────────────
+    before = len(raw)
+    raw['Invoice Date'] = pd.to_datetime(raw['Invoice Date'], errors='coerce')
+    bad_dates = int(raw['Invoice Date'].isna().sum())
+    raw.dropna(subset=['Invoice Date'], inplace=True)
+    report['bad_dates_dropped'] = before - len(raw)
+    report['bad_dates_found']   = bad_dates
+
+    # ── 8. Coerce numeric columns; non-numeric → NaN ─────────
+    num_cols = ['Price per Unit', 'Units Sold', 'Total Sales',
+                'Operating Profit', 'Operating Margin']
+    num_cols = [c for c in num_cols if c in raw.columns]
+    nan_before = {c: int(raw[c].isna().sum()) for c in num_cols}
+    for col in num_cols:
+        raw[col] = pd.to_numeric(raw[col], errors='coerce')
+    nan_after = {c: int(raw[c].isna().sum()) for c in num_cols}
+    report['coerced_to_nan'] = {c: nan_after[c] - nan_before[c] for c in num_cols}
+
+    # ── 9. Impute remaining NaNs with column median ──────────
+    imputed = {}
+    for col in num_cols:
+        n_nan = int(raw[col].isna().sum())
+        if n_nan > 0:
+            med = raw[col].median()
+            raw[col].fillna(med, inplace=True)
+            imputed[col] = {'count': n_nan, 'median': round(float(med), 4)}
+    report['imputed'] = imputed
+
+    # ── 10. Clip negatives in financial columns to 0 ─────────
+    fin_cols = ['Total Sales', 'Operating Profit', 'Units Sold', 'Price per Unit']
+    fin_cols = [c for c in fin_cols if c in raw.columns]
+    neg_counts = {}
+    for col in fin_cols:
+        n_neg = int((raw[col] < 0).sum())
+        if n_neg:
+            raw[col] = raw[col].clip(lower=0)
+            neg_counts[col] = n_neg
+    report['negatives_clipped'] = neg_counts
+
+    # ── 11. Fix Operating Margin scale (>1 means % not ratio) ─
+    if 'Operating Margin' in raw.columns:
+        over_one = int((raw['Operating Margin'] > 1).sum())
+        if over_one > 0:
+            raw.loc[raw['Operating Margin'] > 1, 'Operating Margin'] /= 100
+        report['margin_rescaled'] = over_one
+    else:
+        report['margin_rescaled'] = 0
+
+    # ── 12. Engineer date-derived columns ─────────────────────
+    raw['YearMonth'] = raw['Invoice Date'].dt.to_period('M')
+    raw['Year']      = raw['Invoice Date'].dt.year
+    raw['Month']     = raw['Invoice Date'].dt.month
+    raw['Quarter']   = raw['Invoice Date'].dt.to_period('Q').astype(str)
+
+    # ── 13. Final state snapshot ──────────────────────────────
+    raw.reset_index(drop=True, inplace=True)
+    report['final_rows']       = len(raw)
+    report['final_data_cols']  = report['raw_cols']          # original column count
+    report['final_total_cols'] = len(raw.columns)            # incl. engineered
+    report['engineered_cols']  = report['final_total_cols'] - report['raw_cols']
+    report['final_nulls']      = int(raw.isnull().sum().sum())
+    report['date_range_start'] = str(raw['Invoice Date'].min().date())
+    report['date_range_end']   = str(raw['Invoice Date'].max().date())
+
+    return raw, report
 
 # ─────────────────────────────────────────────
-# EXPORT HELPERS
-# ─────────────────────────────────────────────
-def to_csv_bytes(df: pd.DataFrame) -> bytes:
-    buf = io.StringIO()
-    df.to_csv(buf, index=False)
-    return buf.getvalue().encode()
-
-def to_json_bytes(data) -> bytes:
-    return json.dumps(data, indent=2, ensure_ascii=False).encode()
-
-# ─────────────────────────────────────────────
-# SIDEBAR
+#  SIDEBAR  (single upload widget lives here)
 # ─────────────────────────────────────────────
 with st.sidebar:
-    st.markdown(f"""
-    <div style="display:flex;align-items:center;gap:10px;padding:0.6rem 0 1.2rem 0;border-bottom:1px solid var(--border,#1a3828);margin-bottom:1rem;">
-        {ICON_SPIDER}
-        <div>
-            <div style="font-family:'Space Mono',monospace;color:#00D4AA;font-size:1rem;font-weight:700;">WebHarvest</div>
-            <div style="font-size:0.68rem;color:#5a7a65;font-family:'Space Mono',monospace;">PRO v2.0</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown(f'<div style="font-size:0.75rem;color:#00D4AA;font-family:\'Space Mono\',monospace;margin-bottom:0.5rem;display:flex;align-items:center;gap:6px;">{ICON_SETTINGS} REQUEST SETTINGS</div>', unsafe_allow_html=True)
-
-    timeout = st.slider("Timeout (s)", 5, 60, 15)
-    retries = st.slider("Retries", 1, 5, 2)
-    delay = st.slider("Request Delay (s)", 0.0, 5.0, 1.0, 0.5)
-    respect_robots = st.checkbox("Respect robots.txt", value=True)
-    verify_ssl = st.checkbox("Verify SSL", value=True)
-
-    st.markdown("---")
-    st.markdown(f'<div style="font-size:0.75rem;color:#00D4AA;font-family:\'Space Mono\',monospace;margin-bottom:0.5rem;display:flex;align-items:center;gap:6px;">{ICON_CRAWL} CRAWLER SETTINGS</div>', unsafe_allow_html=True)
-
-    max_pages = st.number_input("Max Pages (Crawler)", min_value=1, max_value=100, value=10)
-    same_domain = st.checkbox("Same domain only", value=True)
-
-    st.markdown("---")
-    if st.button("Clear Logs + Results", type="secondary"):
-        st.session_state.logs = []
-        st.session_state.results = {}
-        st.session_state.history = []
-        st.rerun()
-
-    st.markdown("---")
-    # Activity log in sidebar
-    st.markdown('<div style="font-size:0.72rem;color:#5a7a65;font-family:\'Space Mono\',monospace;margin-bottom:0.4rem;">ACTIVITY LOG</div>', unsafe_allow_html=True)
-    log_html = ""
-    for entry in st.session_state.logs[-30:][::-1]:
-        cls = f"log-{entry['level']}"
-        log_html += f'<div><span class="log-info">[{entry["ts"]}]</span> <span class="{cls}">{entry["msg"]}</span></div>'
-    no_activity = '<span class="log-info">No activity yet.</span>'
-    st.markdown(f'<div class="log-box" style="max-height:300px;">{log_html or no_activity}</div>', unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────
-# HEADER
-# ─────────────────────────────────────────────
-st.markdown(f"""
-<div class="wh-header">
-    {ICON_SPIDER}
-    <h1>WebHarvest Pro <span class="sub">Advanced Web Scraper</span></h1>
-</div>
-""", unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────
-# URL INPUT
-# ─────────────────────────────────────────────
-col_url, col_btn = st.columns([5, 1])
-with col_url:
-    target_url = st.text_input(
-        "Target URL",
-        placeholder="https://example.com",
-        label_visibility="collapsed",
+    _sb_header = (
+        '<div style="display:flex;align-items:center;gap:12px;padding:14px 0 6px;">'
+        + LOGO_SVG +
+        '<div>'
+        '<div style="font-family:Orbitron,sans-serif;font-size:0.92rem;'
+        'font-weight:900;color:' + A1 + ';letter-spacing:2px;">ADIDAS</div>'
+        '<div style="font-family:JetBrains Mono,monospace;font-size:0.54rem;'
+        'color:' + TSEC + ';letter-spacing:3px;">SALES INTELLIGENCE</div>'
+        '</div></div>'
+        '<hr style="border-color:' + BDR + ';margin:8px 0 14px;">'
+        '<div style="font-family:JetBrains Mono,monospace;font-size:0.58rem;color:' + TSEC + ';'
+        'letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">'
+        + svg(P_FILE, 12, TSEC) + ' Data Source</div>'
     )
-with col_btn:
-    go = st.button("Scrape", use_container_width=True)
+    st.markdown(_sb_header, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
-# TABS
-# ─────────────────────────────────────────────
-tab_links, tab_tables, tab_images, tab_meta, tab_css, tab_article, tab_crawl, tab_structured = st.tabs([
-    "Links", "Tables", "Images", "Meta / SEO", "CSS Selectors", "Article Text", "Site Crawler", "Emails & Social"
-])
-
-# ─────────────────────────────────────────────
-# SCRAPING EXECUTION
-# ─────────────────────────────────────────────
-if go and target_url:
-    if not target_url.startswith("http"):
-        target_url = "https://" + target_url
-
-    with st.spinner("Fetching page..."):
-        if respect_robots and not check_robots(target_url):
-            st.warning("robots.txt disallows scraping this URL. Proceeding may violate site policy.")
-            log(f"robots.txt warning for {target_url}", "warn")
-
-        resp = fetch_page(target_url, timeout=timeout, retries=retries, delay=delay)
-
-    if resp:
-        soup = get_soup(resp)
-
-        # ── store results ──
-        st.session_state.results["links"] = scrape_links(soup, target_url)
-        st.session_state.results["tables"] = scrape_tables(soup)
-        st.session_state.results["images"] = scrape_images(soup, target_url)
-        st.session_state.results["meta"] = scrape_meta(soup, target_url)
-        st.session_state.results["structured"] = extract_structured_data(soup)
-        st.session_state.results["url"] = target_url
-        st.session_state.results["resp"] = {
-            "status": resp.status_code,
-            "content_type": resp.headers.get("Content-Type", "—"),
-            "server": resp.headers.get("Server", "—"),
-            "size_kb": len(resp.content) // 1024,
-            "encoding": resp.encoding or "—",
-        }
-        st.session_state.history.append({
-            "url": target_url,
-            "ts": datetime.now().strftime("%H:%M:%S"),
-            "status": resp.status_code,
-        })
-        log(f"Scrape complete: {target_url}", "ok")
-    else:
-        st.error("Failed to fetch the page. Check the URL and your network.")
-
-# ─────────────────────────────────────────────
-# STAT BAR
-# ─────────────────────────────────────────────
-if st.session_state.results:
-    r = st.session_state.results
-    resp_info = r.get("resp", {})
-    status = resp_info.get("status", "—")
-    badge_cls = "badge-ok" if str(status).startswith("2") else "badge-err"
+    # THE ONE AND ONLY file uploader
+    uploaded_file = st.file_uploader(
+        "Upload Excel file",
+        type=["xlsx", "xls"],
+        label_visibility="collapsed",
+        help="Upload Adidas Sales Analysis Excel file (.xlsx / .xls)"
+    )
 
     st.markdown(f"""
-    <div class="stat-row">
-        <div class="stat-pill">
-            <span class="val">{len(r.get('links', []))}</span>
-            <span class="lbl">Links Found</span>
-        </div>
-        <div class="stat-pill">
-            <span class="val">{len(r.get('tables', []))}</span>
-            <span class="lbl">Tables</span>
-        </div>
-        <div class="stat-pill">
-            <span class="val">{len(r.get('images', []))}</span>
-            <span class="lbl">Images</span>
-        </div>
-        <div class="stat-pill">
-            <span class="val">{resp_info.get('size_kb','—')} KB</span>
-            <span class="lbl">Page Size</span>
-        </div>
-        <div class="stat-pill">
-            <span class="val"><span class="badge {badge_cls}">{status}</span></span>
-            <span class="lbl">HTTP Status</span>
-        </div>
-        <div class="stat-pill">
-            <span class="val">{r.get('meta',{}).get('word_count','—')}</span>
-            <span class="lbl">Words</span>
-        </div>
+    <hr style="border-color:{BDR};margin:14px 0 12px;">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:{TSEC};
+                letter-spacing:2px;text-transform:uppercase;margin-bottom:10px;">
+        {svg(P_NAV, 12, TSEC)} Navigation
     </div>
     """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
-# TAB: LINKS
-# ─────────────────────────────────────────────
-with tab_links:
-    st.markdown(f'<div class="wh-card"><h4>{ICON_LINK} Extracted Links</h4>', unsafe_allow_html=True)
+    page = st.radio("Page", ["Sales Overview", "Geo & Product Deep Dive"],
+                    label_visibility="collapsed")
 
-    if "links" in st.session_state.results:
-        links = st.session_state.results["links"]
-        if links:
-            df_links = pd.DataFrame(links)
-
-            col_f1, col_f2 = st.columns(2)
-            with col_f1:
-                link_filter = st.text_input("Filter by text or URL", key="lf", placeholder="Search...")
-            with col_f2:
-                ext_filter = st.selectbox("Type", ["All", "Internal", "External"], key="ef")
-
-            filtered = df_links.copy()
-            if link_filter:
-                mask = (
-                    filtered["text"].str.contains(link_filter, case=False, na=False) |
-                    filtered["url"].str.contains(link_filter, case=False, na=False)
-                )
-                filtered = filtered[mask]
-            if ext_filter == "External":
-                filtered = filtered[filtered["external"] == True]
-            elif ext_filter == "Internal":
-                filtered = filtered[filtered["external"] == False]
-
-            st.markdown(f'<div style="font-size:0.78rem;color:var(--muted,#5a7a65);margin-bottom:0.5rem;font-family:\'Space Mono\',monospace;">{len(filtered)} / {len(links)} links shown</div>', unsafe_allow_html=True)
-            st.dataframe(filtered, use_container_width=True, hide_index=True)
-
-            st.download_button(
-                "Download CSV",
-                data=to_csv_bytes(filtered),
-                file_name="links.csv",
-                mime="text/csv",
-            )
-        else:
-            st.info("No links found on this page.")
-    else:
-        st.markdown('<div style="color:var(--muted,#5a7a65);font-size:0.85rem;">Enter a URL and click Scrape to extract links.</div>', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────
-# TAB: TABLES
-# ─────────────────────────────────────────────
-with tab_tables:
-    st.markdown(f'<div class="wh-card"><h4>{ICON_TABLE} Extracted Tables</h4>', unsafe_allow_html=True)
-
-    if "tables" in st.session_state.results:
-        tables = st.session_state.results["tables"]
-        if tables:
-            for i, df in enumerate(tables):
-                with st.expander(f"Table {i+1}  —  {df.shape[0]} rows x {df.shape[1]} cols"):
-                    st.dataframe(df, use_container_width=True)
-                    st.download_button(
-                        f"Download Table {i+1} CSV",
-                        data=to_csv_bytes(df),
-                        file_name=f"table_{i+1}.csv",
-                        mime="text/csv",
-                        key=f"dl_tbl_{i}",
-                    )
-        else:
-            st.info("No HTML tables found on this page.")
-    else:
-        st.markdown('<div style="color:var(--muted,#5a7a65);font-size:0.85rem;">Enter a URL and click Scrape.</div>', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────
-# TAB: IMAGES
-# ─────────────────────────────────────────────
-with tab_images:
-    st.markdown(f'<div class="wh-card"><h4>{ICON_IMAGE} Extracted Images</h4>', unsafe_allow_html=True)
-
-    if "images" in st.session_state.results:
-        images = st.session_state.results["images"]
-        if images:
-            df_imgs = pd.DataFrame(images)
-            img_search = st.text_input("Filter by src or alt text", key="img_f", placeholder="Search...")
-            if img_search:
-                df_imgs = df_imgs[
-                    df_imgs["src"].str.contains(img_search, case=False, na=False) |
-                    df_imgs["alt"].str.contains(img_search, case=False, na=False)
-                ]
-
-            st.dataframe(df_imgs, use_container_width=True, hide_index=True)
-
-            col_d1, col_d2 = st.columns(2)
-            with col_d1:
-                st.download_button("Download CSV", data=to_csv_bytes(df_imgs), file_name="images.csv", mime="text/csv")
-            with col_d2:
-                urls_only = "\n".join(df_imgs["src"].tolist())
-                st.download_button("Download URL List", data=urls_only.encode(), file_name="image_urls.txt", mime="text/plain")
-        else:
-            st.info("No images found.")
-    else:
-        st.markdown('<div style="color:var(--muted,#5a7a65);font-size:0.85rem;">Enter a URL and click Scrape.</div>', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────
-# TAB: META / SEO
-# ─────────────────────────────────────────────
-with tab_meta:
-    st.markdown(f'<div class="wh-card"><h4>{ICON_META} Meta Data & SEO Analysis</h4>', unsafe_allow_html=True)
-
-    if "meta" in st.session_state.results:
-        meta = st.session_state.results["meta"]
-
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            st.markdown("**Core SEO**")
-            seo_items = {
-                "Title": meta.get("title","—"),
-                "Description": meta.get("description","—"),
-                "Keywords": meta.get("keywords","—"),
-                "Canonical": meta.get("canonical","—"),
-                "Robots": meta.get("robots","—"),
-                "Word Count": meta.get("word_count","—"),
-            }
-            for k, v in seo_items.items():
-                st.markdown(f'<div class="result-item"><b style="color:#5a7a65;font-size:0.72rem;">{k}</b><br>{v}</div>', unsafe_allow_html=True)
-
-        with col_m2:
-            st.markdown("**Open Graph**")
-            og = meta.get("_open_graph", {})
-            if og:
-                for k, v in og.items():
-                    st.markdown(f'<div class="result-item"><b style="color:#5a7a65;font-size:0.72rem;">{k}</b><br>{v}</div>', unsafe_allow_html=True)
-            else:
-                st.info("No Open Graph tags found.")
-
-        st.markdown("**H1 Tags**")
-        for h in meta.get("h1", []):
-            st.markdown(f'<div class="result-item">{h}</div>', unsafe_allow_html=True)
-
-        st.markdown("**H2 Tags**")
-        h2s = meta.get("h2", [])
-        for h in h2s[:10]:
-            st.markdown(f'<div class="result-item">{h}</div>', unsafe_allow_html=True)
-        if len(h2s) > 10:
-            st.caption(f"... and {len(h2s)-10} more")
-
-        if meta.get("_schema_org"):
-            with st.expander("Schema.org / JSON-LD Data"):
-                st.json(meta["_schema_org"])
-
-        st.download_button(
-            "Download Meta JSON",
-            data=to_json_bytes({k: v for k, v in meta.items() if not k.startswith("_")}),
-            file_name="meta.json",
-            mime="application/json",
-        )
-    else:
-        st.markdown('<div style="color:var(--muted,#5a7a65);font-size:0.85rem;">Enter a URL and click Scrape.</div>', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────
-# TAB: CSS SELECTORS
-# ─────────────────────────────────────────────
-with tab_css:
-    st.markdown(f'<div class="wh-card"><h4>{ICON_SEARCH} CSS Selector Extractor</h4>', unsafe_allow_html=True)
-
-    if "url" not in st.session_state.results:
-        st.markdown('<div style="color:var(--muted,#5a7a65);font-size:0.85rem;">Scrape a page first, then use CSS selectors.</div>', unsafe_allow_html=True)
-    else:
-        selectors_input = st.text_area(
-            "CSS Selectors (one per line)",
-            placeholder="h1\n.product-title\n#price\narticle p\n[data-price]",
-            height=120,
-        )
-
-        if st.button("Extract Elements", key="css_btn"):
-            if selectors_input.strip():
-                selectors = [s for s in selectors_input.strip().splitlines() if s.strip()]
-                with st.spinner("Re-fetching & parsing..."):
-                    resp = fetch_page(st.session_state.results["url"], timeout=timeout, retries=retries)
-                if resp:
-                    soup = get_soup(resp)
-                    css_results = scrape_custom_css(soup, selectors)
-                    st.session_state.results["css"] = css_results
-
-        if "css" in st.session_state.results:
-            css_results = st.session_state.results["css"]
-            for sel, items in css_results.items():
-                badge = f'<span class="badge badge-ok">{len(items)} match{"es" if len(items)!=1 else ""}</span>'
-                if not items:
-                    badge = '<span class="badge badge-warn">0 matches</span>'
-                with st.expander(f"{sel}  {badge}", expanded=len(items) > 0):
-                    if items:
-                        for idx, item in enumerate(items[:50], 1):
-                            st.markdown(f'<div class="result-item"><span style="color:var(--muted,#5a7a65);font-size:0.7rem;">#{idx}</span><br>{item}</div>', unsafe_allow_html=True)
-                        if len(items) > 50:
-                            st.caption(f"Showing 50 of {len(items)} matches.")
-                    else:
-                        st.caption("No elements matched this selector.")
-
-            st.download_button(
-                "Download Results JSON",
-                data=to_json_bytes(css_results),
-                file_name="css_results.json",
-                mime="application/json",
-            )
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────
-# TAB: ARTICLE TEXT
-# ─────────────────────────────────────────────
-with tab_article:
-    st.markdown(f'<div class="wh-card"><h4>{ICON_META} Article / Main Content Extraction</h4>', unsafe_allow_html=True)
-
-    art_url = st.text_input("Article URL (can differ from main URL)", key="art_url",
-                            value=st.session_state.results.get("url", ""),
-                            placeholder="https://example.com/article")
-
-    if st.button("Extract Article Text", key="art_btn"):
-        if art_url:
-            with st.spinner("Extracting main content via trafilatura..."):
-                article_text = scrape_article(art_url)
-            st.session_state.results["article_text"] = article_text
-            log(f"Article extraction: {len(article_text)} chars", "ok")
-
-    if "article_text" in st.session_state.results:
-        text = st.session_state.results["article_text"]
-        words = len(text.split())
-        st.markdown(f'<div style="font-family:\'Space Mono\',monospace;font-size:0.72rem;color:var(--muted,#5a7a65);margin-bottom:0.6rem;">{words} words extracted</div>', unsafe_allow_html=True)
-        st.text_area("Extracted Content", value=text, height=350, key="art_out")
-        st.download_button("Download as .txt", data=text.encode(), file_name="article.txt", mime="text/plain")
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────
-# TAB: SITE CRAWLER
-# ─────────────────────────────────────────────
-with tab_crawl:
-    st.markdown(f'<div class="wh-card"><h4>{ICON_CRAWL} Multi-Page Site Crawler</h4>', unsafe_allow_html=True)
-
-    crawl_url = st.text_input("Start URL", key="crawl_url",
-                               value=st.session_state.results.get("url", ""),
-                               placeholder="https://example.com")
-
-    col_c1, col_c2, col_c3 = st.columns(3)
-    with col_c1:
-        c_max = st.number_input("Max Pages", 1, 100, int(max_pages), key="c_max")
-    with col_c2:
-        c_same = st.checkbox("Same domain only", value=same_domain, key="c_same")
-    with col_c3:
-        c_robots = st.checkbox("Respect robots.txt", value=respect_robots, key="c_robots")
-
-    crawl_btn = st.button("Start Crawl", key="crawl_btn")
-
-    crawl_status = st.empty()
-    crawl_progress = st.empty()
-
-    if crawl_btn and crawl_url:
-        if not crawl_url.startswith("http"):
-            crawl_url = "https://" + crawl_url
-
-        log(f"Starting crawl: {crawl_url} (max {c_max} pages)", "ok")
-
-        prog = crawl_progress.progress(0)
-        status_ph = crawl_status.empty()
-
-        with st.spinner("Crawling..."):
-            crawl_results = crawl_site(
-                crawl_url,
-                max_pages=c_max,
-                same_domain=c_same,
-                delay=delay,
-                respect_robots=c_robots,
-                progress_bar=prog,
-                status_text=status_ph,
-            )
-
-        st.session_state.results["crawl"] = crawl_results
-        crawl_progress.empty()
-        crawl_status.empty()
-        log(f"Crawl complete: {len(crawl_results)} pages", "ok")
-
-    if "crawl" in st.session_state.results:
-        crawl_data = st.session_state.results["crawl"]
-        df_crawl = pd.DataFrame(crawl_data)
-
-        ok = sum(1 for p in crawl_data if str(p.get("status","")).startswith("2"))
-        errs = len(crawl_data) - ok
-
+    if uploaded_file:
         st.markdown(f"""
-        <div class="stat-row">
-            <div class="stat-pill"><span class="val">{len(crawl_data)}</span><span class="lbl">Pages Visited</span></div>
-            <div class="stat-pill"><span class="val">{ok}</span><span class="lbl">Success</span></div>
-            <div class="stat-pill"><span class="val">{errs}</span><span class="lbl">Errors</span></div>
+        <hr style="border-color:{BDR};margin:14px 0 12px;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:{TSEC};
+                    letter-spacing:2px;text-transform:uppercase;margin-bottom:10px;">
+            {svg(P_FIND, 12, TSEC)} Filters
         </div>
         """, unsafe_allow_html=True)
 
-        st.dataframe(df_crawl, use_container_width=True, hide_index=True)
-        st.download_button("Download Crawl CSV", data=to_csv_bytes(df_crawl), file_name="crawl_results.csv", mime="text/csv")
-
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style="position:fixed;bottom:14px;left:0;width:236px;text-align:center;
+                font-family:'JetBrains Mono',monospace;font-size:0.5rem;
+                color:{TSEC}33;letter-spacing:1px;">
+        STREAMLIT + MATPLOTLIB + PANDAS
+    </div>
+    """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# TAB: EMAILS & SOCIAL
+#  UPLOAD GATE  (no widget here — uploader is in sidebar)
 # ─────────────────────────────────────────────
-with tab_structured:
-    st.markdown(f'<div class="wh-card"><h4>{ICON_SEARCH} Emails, Phones & Social Profiles</h4>', unsafe_allow_html=True)
+if uploaded_file is None:
+    # Build entire upload landing as one HTML string — no nested f-strings with SVG
+    _upload_icon = (
+        '<svg width="52" height="52" viewBox="0 0 24 24" fill="none"'
+        ' xmlns="http://www.w3.org/2000/svg"'
+        ' style="margin-bottom:4px;">'
+        '<path d="' + P_UPLOAD + '" stroke="' + A1 + '" stroke-width="1.6"'
+        ' stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    )
+    _badges = (
+        '<span class="upload-badge">' + svg(P_FILE,12,TSEC) + 'Excel (.xlsx / .xls)</span>'
+        '<span class="upload-badge">' + svg(P_CHART,12,TSEC) + '9,000+ Records</span>'
+        '<span class="upload-badge">' + svg(P_FLASH,12,TSEC) + 'Instant Analysis</span>'
+        '<span class="upload-badge">' + svg(P_NAV,12,TSEC) + '2-Page Dashboard</span>'
+    )
+    _upload_page_html = (
+        '<div class="upload-wrap">'
+        + LOGO_LG +
+        '<h2>ADIDAS SALES INTELLIGENCE</h2>'
+        '<p>Upload your Sales Analysis Excel file using the panel on the left'
+        ' to launch the full interactive dashboard.</p>'
+        '</div>'
+        '<div style="max-width:520px;margin:0 auto;">'
+        '<div style="display:flex;flex-direction:column;align-items:center;gap:14px;'
+        'background:' + CARD_BG + ';border:2px dashed ' + A1 + '55;border-radius:14px;'
+        'padding:28px 32px;margin-bottom:20px;">'
+        + _upload_icon +
+        '<div style="font-family:Orbitron,sans-serif;font-size:0.72rem;'
+        'color:' + A1 + ';letter-spacing:2px;text-align:center;">USE THE SIDEBAR UPLOADER</div>'
+        '<div style="font-family:JetBrains Mono,monospace;font-size:0.65rem;'
+        'color:' + TSEC + ';letter-spacing:1px;text-align:center;line-height:1.7;">'
+        'Click the <b style="color:' + TPRI + ';">arrow on the left</b> to open the sidebar,'
+        ' then drag &amp; drop or browse your <b style="color:' + TPRI + ';">.xlsx</b> file.'
+        '</div></div>'
+        '<div style="text-align:center;margin-bottom:14px;">' + _badges + '</div>'
+        '<div style="text-align:center;font-family:JetBrains Mono,monospace;'
+        'font-size:0.6rem;color:' + TSEC + '44;letter-spacing:1px;">'
+        'Expected columns: Retailer &middot; Region &middot; State &middot; City'
+        ' &middot; Product &middot; Price per Unit &middot; Units Sold &middot;'
+        ' Total Sales &middot; Operating Profit &middot; Operating Margin'
+        ' &middot; Sales Method &middot; Invoice Date'
+        '</div></div>'
+    )
+    components.html(
+        '<style>'
+        'body{margin:0;padding:0;background:#0A0A0F;}'
+        '@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@900&family=Rajdhani:wght@400;600&family=JetBrains+Mono:wght@400&display=swap");'
+        '.upload-wrap{display:flex;flex-direction:column;align-items:center;padding:40px 20px 20px;text-align:center;}'
+        'h2{font-family:Orbitron,sans-serif;font-size:1.4rem;font-weight:900;'
+        'background:linear-gradient(90deg,#00E5FF,#FF3CAC);-webkit-background-clip:text;'
+        '-webkit-text-fill-color:transparent;letter-spacing:3px;margin:16px 0 8px;}'
+        'p{color:#8A8A9A;font-family:JetBrains Mono,monospace;font-size:0.75rem;'
+        'letter-spacing:1px;margin-bottom:24px;max-width:480px;}'
+        '.upload-badge{display:inline-flex;align-items:center;gap:7px;'
+        'background:#12121A;border:1px solid #1E1E2E;border-radius:8px;'
+        'padding:7px 14px;font-family:JetBrains Mono,monospace;'
+        'font-size:0.68rem;color:#8A8A9A;margin:4px;}'
+        '.card{display:flex;flex-direction:column;align-items:center;gap:14px;'
+        'background:#12121A;border:2px dashed #00E5FF55;border-radius:14px;'
+        'padding:28px 32px;margin-bottom:20px;max-width:480px;width:100%;}'
+        '.instr{font-family:JetBrains Mono,monospace;font-size:0.65rem;'
+        'color:#8A8A9A;letter-spacing:1px;text-align:center;line-height:1.7;}'
+        '.lbl{font-family:Orbitron,sans-serif;font-size:0.72rem;'
+        'color:#00E5FF;letter-spacing:2px;text-align:center;}'
+        '</style>'
+        + _upload_page_html,
+        height=520, scrolling=False
+    )
+    st.stop()
 
-    if "structured" in st.session_state.results:
-        s = st.session_state.results["structured"]
+# ─────────────────────────────────────────────
+#  LOAD, CLEAN & REPORT
+# ─────────────────────────────────────────────
+try:
+    file_bytes = uploaded_file.read()
+    df_raw, rpt = load_and_clean(file_bytes)
+except Exception as exc:
+    st.error(f"Could not read or clean file: {exc}")
+    st.stop()
 
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            st.markdown("**Email Addresses**")
-            emails = s.get("emails", [])
-            if emails:
-                for e in emails:
-                    st.markdown(f'<div class="result-item"><a href="mailto:{e}">{e}</a></div>', unsafe_allow_html=True)
-            else:
-                st.caption("None found.")
+# ── Data Cleaning Report ─────────────────────
+rows_removed = rpt['raw_rows'] - rpt['final_rows']
+P_CHECK  = "M20 6L9 17l-5-5"
+P_WARN   = "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"
+P_SHIELD = "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"
 
-            st.markdown("**Phone Numbers**")
-            phones = s.get("phones", [])
-            if phones:
-                for p in phones[:15]:
-                    st.markdown(f'<div class="result-item">{p.strip()}</div>', unsafe_allow_html=True)
-            else:
-                st.caption("None found.")
+def step_html(num, label, detail, kind="ok"):
+    css = "clean-step-ok" if kind == "ok" else ("clean-step-warn" if kind == "warn" else "clean-step-info")
+    icon_path = P_CHECK if kind == "ok" else (P_WARN if kind == "warn" else P_WAVE)
+    icon_color = A5 if kind == "ok" else (A4 if kind == "warn" else TSEC)
+    return f"""
+    <div class="clean-step">
+        <span class="clean-step-num">{num:02d}</span>
+        {svg(icon_path, 12, icon_color)}
+        <span class="{css}"><b>{label}</b> — {detail}</span>
+    </div>"""
 
-        with col_s2:
-            st.markdown("**Social Profiles**")
-            social = s.get("social_profiles", {})
-            if social:
-                for platform, handles in social.items():
-                    st.markdown(f'<div class="result-item"><b style="color:var(--accent,#00D4AA);font-size:0.8rem;">{platform.upper()}</b><br>{"  /  ".join(handles[:5])}</div>', unsafe_allow_html=True)
-            else:
-                st.caption("No social profiles detected.")
+steps_html = ""
+steps_html += step_html(1,  "Load Excel",
+    f"{rpt['raw_rows']:,} rows × {rpt['raw_cols']} columns read from file")
+steps_html += step_html(2,  "Normalise Column Names",
+    f"Whitespace stripped; common aliases remapped to standard names")
+steps_html += step_html(3,  "Drop Empty Rows / Cols",
+    f"{rpt['empty_rows_dropped']} fully-empty rows removed",
+    "warn" if rpt['empty_rows_dropped'] > 0 else "ok")
+steps_html += step_html(4,  "Strip String Whitespace",
+    "All object columns trimmed of leading/trailing spaces")
+steps_html += step_html(5,  "Title-Case Categoricals",
+    "Retailer, Region, State, City, Product, Sales Method standardised")
+steps_html += step_html(6,  "Remove Exact Duplicates",
+    f"{rpt['duplicates_dropped']} duplicate rows removed",
+    "warn" if rpt['duplicates_dropped'] > 0 else "ok")
+steps_html += step_html(7,  "Parse Invoice Date",
+    f"{rpt['bad_dates_dropped']} unparseable dates dropped  |  "
+    f"Range: {rpt['date_range_start']} to {rpt['date_range_end']}",
+    "warn" if rpt['bad_dates_dropped'] > 0 else "ok")
+coerced_total = sum(rpt['coerced_to_nan'].values())
+steps_html += step_html(8,  "Coerce Numerics",
+    f"{coerced_total} non-numeric values converted to NaN across "
+    f"{len(rpt['coerced_to_nan'])} numeric columns",
+    "warn" if coerced_total > 0 else "ok")
+imp_total = sum(v['count'] for v in rpt['imputed'].values())
+imp_detail = (", ".join(f"{c}: {v['count']} filled (median={v['median']})"
+              for c, v in rpt['imputed'].items()) if rpt['imputed'] else "No NaNs found")
+steps_html += step_html(9,  "Impute NaN with Median",
+    f"{imp_total} values imputed  |  {imp_detail}",
+    "warn" if imp_total > 0 else "ok")
+neg_total = sum(rpt['negatives_clipped'].values())
+neg_detail = (", ".join(f"{c}: {v}" for c, v in rpt['negatives_clipped'].items())
+              if rpt['negatives_clipped'] else "None found")
+steps_html += step_html(10, "Clip Negative Values",
+    f"{neg_total} negative values in financial columns clipped to 0  |  {neg_detail}",
+    "warn" if neg_total > 0 else "ok")
+margin_fixed = rpt.get('margin_rescaled', 0)
+steps_html += step_html(11, "Fix Margin Scale",
+    f"{margin_fixed} Operating Margin values >1 rescaled by dividing by 100",
+    "warn" if margin_fixed > 0 else "ok")
+steps_html += step_html(12, "Engineer Date Columns",
+    f"Derived: YearMonth, Year, Month, Quarter from Invoice Date")
+steps_html += step_html(13, "Final Dataset",
+    f"{rpt['final_rows']:,} rows  |  "
+    f"{rpt['raw_cols']} original + {rpt['engineered_cols']} engineered = "
+    f"{rpt['final_total_cols']} total columns  |  {rpt['final_nulls']} nulls remaining")
 
-        st.download_button(
-            "Download JSON",
-            data=to_json_bytes(s),
-            file_name="contact_data.json",
-            mime="application/json",
-        )
+with st.expander(
+    f"Data Cleaning Report  —  {rpt['raw_rows']:,} raw rows  →  "
+    f"{rpt['final_rows']:,} clean rows  ({rows_removed} removed)",
+    expanded=False
+):
+    st.markdown(f"""
+    <div class="clean-panel">
+        <div class="clean-panel-title">
+            {svg(P_SHIELD, 15, A5)} Data Quality Pipeline — 13 Steps Applied
+        </div>
+        <div class="clean-grid">
+            <div class="clean-stat">
+                <div class="clean-stat-val">{rpt['raw_rows']:,}</div>
+                <div class="clean-stat-lbl">Raw Rows</div>
+            </div>
+            <div class="clean-stat">
+                <div class="clean-stat-val">{rpt['final_rows']:,}</div>
+                <div class="clean-stat-lbl">Clean Rows</div>
+            </div>
+            <div class="clean-stat">
+                <div class="clean-stat-val">{rows_removed}</div>
+                <div class="clean-stat-lbl">Rows Removed</div>
+            </div>
+            <div class="clean-stat">
+                <div class="clean-stat-val">{rpt['raw_cols']} + {rpt['engineered_cols']}</div>
+                <div class="clean-stat-lbl">Cols (orig + derived)</div>
+            </div>
+        </div>
+        {steps_html}
+    </div>
+    """, unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+#  SIDEBAR FILTERS (after data loaded)
+# ─────────────────────────────────────────────
+with st.sidebar:
+    if page == "Sales Overview":
+        regions   = ["All"] + sorted(df_raw['Region'].dropna().unique())
+        retailers = ["All"] + sorted(df_raw['Retailer'].dropna().unique())
+        sel_region   = st.selectbox("Region",   regions)
+        sel_retailer = st.selectbox("Retailer", retailers)
+        min_d = df_raw['Invoice Date'].min().date()
+        max_d = df_raw['Invoice Date'].max().date()
+        date_range = st.date_input("Date Range",
+                        value=(min_d, max_d), min_value=min_d, max_value=max_d)
+        sel_method  = "All"
+        sel_product = "All"
     else:
-        st.markdown('<div style="color:var(--muted,#5a7a65);font-size:0.85rem;">Enter a URL and click Scrape.</div>', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
+        methods  = ["All"] + sorted(df_raw['Sales Method'].dropna().unique())
+        products = ["All"] + sorted(df_raw['Product'].dropna().unique())
+        sel_method  = st.selectbox("Sales Method", methods)
+        sel_product = st.selectbox("Product",      products)
+        sel_region   = "All"
+        sel_retailer = "All"
+        date_range   = None
 
 # ─────────────────────────────────────────────
-# SCRAPE HISTORY
+#  FILTER HELPERS
 # ─────────────────────────────────────────────
-if st.session_state.history:
-    st.markdown("---")
-    st.markdown('<div style="font-family:\'Space Mono\',monospace;font-size:0.75rem;color:#5a7a65;margin-bottom:0.4rem;">SCRAPE HISTORY</div>', unsafe_allow_html=True)
-    hist_html = ""
-    for h in st.session_state.history[-10:][::-1]:
-        badge_cls = "badge-ok" if str(h["status"]).startswith("2") else "badge-err"
-        hist_html += f'<div class="result-item"><span class="badge {badge_cls}">{h["status"]}</span> <a href="{h["url"]}" target="_blank">{h["url"][:80]}</a> <span style="color:var(--muted,#5a7a65);font-size:0.7rem;float:right;">{h["ts"]}</span></div>'
-    st.markdown(hist_html, unsafe_allow_html=True)
+def filter_p1(df):
+    d = df.copy()
+    if sel_region   != "All": d = d[d['Region']   == sel_region]
+    if sel_retailer != "All": d = d[d['Retailer'] == sel_retailer]
+    if date_range and len(date_range) == 2:
+        d = d[(d['Invoice Date'].dt.date >= date_range[0]) &
+              (d['Invoice Date'].dt.date <= date_range[1])]
+    return d
+
+def filter_p2(df):
+    d = df.copy()
+    if sel_method  != "All": d = d[d['Sales Method'] == sel_method]
+    if sel_product != "All": d = d[d['Product']      == sel_product]
+    return d
+
+# ════════════════════════════════════════════════════════════
+#  PAGE 1 — SALES OVERVIEW
+# ════════════════════════════════════════════════════════════
+if page == "Sales Overview":
+    df = filter_p1(df_raw)
+
+    # ── Header ──────────────────────────────────
+    st.markdown(
+        '<div class="dashboard-header">' + LOGO_SVG +
+        '<div class="header-text">'
+        '<h1>SALES OVERVIEW</h1>'
+        '<p>Total Sales &nbsp;&middot;&nbsp; Profitability &nbsp;&middot;&nbsp; Volume'
+        ' &nbsp;&middot;&nbsp; Pricing &nbsp;&middot;&nbsp; Margin Analysis</p>'
+        '</div></div>',
+        unsafe_allow_html=True)
+
+    # ── KPIs ────────────────────────────────────
+    total_sales  = df['Total Sales'].sum()
+    total_profit = df['Operating Profit'].sum()
+    total_units  = int(df['Units Sold'].sum())
+    avg_price    = df['Price per Unit'].mean()
+    avg_margin   = df['Operating Margin'].mean() * 100
+
+    st.markdown(f"""
+    <div class="kpi-grid">
+      <div class="kpi-card kpi-c1">
+        <span class="kpi-icon">{svg(P_STAR, 20, A1)}</span>
+        <div class="kpi-label">Total Sales</div>
+        <div class="kpi-value">{fmt_num(total_sales)}</div>
+        <div class="kpi-sub">Overall Revenue</div>
+      </div>
+      <div class="kpi-card kpi-c2">
+        <span class="kpi-icon">{svg(P_PROFIT, 20, A2)}</span>
+        <div class="kpi-label">Operating Profit</div>
+        <div class="kpi-value">{fmt_num(total_profit)}</div>
+        <div class="kpi-sub">Net Profitability</div>
+      </div>
+      <div class="kpi-card kpi-c3">
+        <span class="kpi-icon">{svg(P_BOX, 20, A4)}</span>
+        <div class="kpi-label">Units Sold</div>
+        <div class="kpi-value">{total_units:,}</div>
+        <div class="kpi-sub">Product Demand</div>
+      </div>
+      <div class="kpi-card kpi-c4">
+        <span class="kpi-icon">{svg(P_DOLLAR, 20, A5)}</span>
+        <div class="kpi-label">Avg Price / Unit</div>
+        <div class="kpi-value">${avg_price:.2f}</div>
+        <div class="kpi-sub">Pricing Strategy</div>
+      </div>
+      <div class="kpi-card kpi-c5">
+        <span class="kpi-icon">{svg(P_WAVE, 20, A3)}</span>
+        <div class="kpi-label">Avg Margin</div>
+        <div class="kpi-value">{avg_margin:.1f}%</div>
+        <div class="kpi-sub">Profitability Rate</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Row 1: Area Chart + Region Donut ────────
+    c1, c2 = st.columns([2, 1])
+
+    with c1:
+        st.markdown(ct(P_TREND, "TOTAL SALES BY MONTH — AREA CHART"), unsafe_allow_html=True)
+        monthly = (df.groupby('YearMonth')['Total Sales']
+                     .sum().reset_index().sort_values('YearMonth'))
+        monthly['Label'] = monthly['YearMonth'].astype(str)
+        x = np.arange(len(monthly))
+        y = monthly['Total Sales'].values / 1e6
+
+        fig, ax = plt.subplots(figsize=(10, 3.8))
+        fig.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CARD_BG)
+        cmap_area = LinearSegmentedColormap.from_list('a', [A1 + '00', A1 + '70'])
+        if len(x) > 1:
+            ax.imshow(np.linspace(0, 1, 300).reshape(1, -1), aspect='auto',
+                      extent=[x[0], x[-1], 0, y.max()],
+                      cmap=cmap_area, origin='lower', zorder=1, alpha=0.45)
+        ax.plot(x, y, color=A1, lw=2.5, zorder=5)
+        ax.fill_between(x, y, color=A1, alpha=0.07, zorder=2)
+        ax.scatter(x, y, color=A1, s=26, zorder=6)
+        step = max(1, len(monthly) // 8)
+        ax.set_xticks(x[::step])
+        ax.set_xticklabels(monthly['Label'].iloc[::step], rotation=30, ha='right', fontsize=8)
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f'${v:.0f}M'))
+        ax.grid(axis='y', alpha=0.25)
+        ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+        plt.tight_layout()
+        show_fig(fig)
+
+    with c2:
+        st.markdown(ct(P_GLOBE, "SALES BY REGION — DONUT"), unsafe_allow_html=True)
+        reg = df.groupby('Region')['Total Sales'].sum()
+        fig, ax = plt.subplots(figsize=(4.5, 3.8))
+        fig.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CARD_BG)
+        wedges, texts, autos = ax.pie(
+            reg.values, labels=reg.index, autopct='%1.1f%%',
+            colors=PALETTE[:len(reg)],
+            wedgeprops=dict(width=0.52, edgecolor=CARD_BG, linewidth=2),
+            pctdistance=0.82, startangle=90)
+        for t in texts: t.set_color(TSEC); t.set_fontsize(8)
+        for a in autos: a.set_color(DARK_BG); a.set_fontsize(7.5); a.set_fontweight('bold')
+        plt.tight_layout()
+        show_fig(fig)
+
+    # ── Row 2: Product Bar + Sales Method Donut ──
+    c3, c4 = st.columns([2, 1])
+
+    with c3:
+        st.markdown(ct(P_SHOE, "TOTAL SALES BY PRODUCT — BAR CHART"), unsafe_allow_html=True)
+        prod = df.groupby('Product')['Total Sales'].sum().sort_values()
+        fig, ax = plt.subplots(figsize=(10, 3.8))
+        fig.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CARD_BG)
+        ax.barh(prod.index, prod.values / 1e6,
+                color=PALETTE[:len(prod)], edgecolor='none', height=0.58)
+        for i, v in enumerate(prod.values):
+            ax.text(v / 1e6 + 0.2, i, f'${v/1e6:.1f}M',
+                    va='center', fontsize=8, color=TSEC)
+        ax.set_xlabel('Sales (Millions $)', fontsize=8)
+        ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+        ax.grid(axis='x', alpha=0.2)
+        ax.tick_params(axis='y', labelsize=8)
+        plt.tight_layout()
+        show_fig(fig)
+
+    with c4:
+        st.markdown(ct(P_CHART, "SALES BY METHOD — DONUT"), unsafe_allow_html=True)
+        meth = df.groupby('Sales Method')['Total Sales'].sum()
+        fig, ax = plt.subplots(figsize=(4.5, 3.8))
+        fig.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CARD_BG)
+        wedges, texts, autos = ax.pie(
+            meth.values, labels=meth.index, autopct='%1.1f%%',
+            colors=[A2, A4, A1],
+            wedgeprops=dict(width=0.52, edgecolor=CARD_BG, linewidth=2),
+            pctdistance=0.82, startangle=90)
+        for t in texts: t.set_color(TSEC); t.set_fontsize(8)
+        for a in autos: a.set_color(DARK_BG); a.set_fontsize(7.5); a.set_fontweight('bold')
+        plt.tight_layout()
+        show_fig(fig)
+
+    # ── Retailer Bar (full width) ────────────────
+    st.markdown(ct(P_STAR, "TOTAL SALES BY RETAILER — BAR CHART", A4), unsafe_allow_html=True)
+    ret = df.groupby('Retailer')['Total Sales'].sum().sort_values(ascending=False)
+    fig, ax = plt.subplots(figsize=(14, 3.2))
+    fig.patch.set_facecolor(CARD_BG)
+    ax.set_facecolor(CARD_BG)
+    bar_colors = [A1 if i == 0 else A3 for i in range(len(ret))]
+    bars = ax.bar(ret.index, ret.values / 1e6, color=bar_colors, edgecolor='none', width=0.5)
+    for bar in bars:
+        h = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2, h + 0.4,
+                f'${h:.1f}M', ha='center', fontsize=8, color=TSEC)
+    ax.set_ylabel('Sales (M$)', fontsize=8)
+    ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+    ax.grid(axis='y', alpha=0.2)
+    plt.tight_layout()
+    show_fig(fig)
+
+    # ── Key Findings ────────────────────────────
+    st.markdown(sl(P_FIND, "KEY FINDINGS — SALES OVERVIEW"), unsafe_allow_html=True)
+
+    top_retailer = ret.index[0]
+    top_product  = df.groupby('Product')['Total Sales'].sum().idxmax()
+    top_region   = df.groupby('Region')['Total Sales'].sum().idxmax()
+    top_method   = df.groupby('Sales Method')['Total Sales'].sum().idxmax()
+    peak_month   = monthly.loc[monthly['Total Sales'].idxmax(), 'Label']
+
+    findings1 = [
+        (P_STAR,   A4, "TOP RETAILER",
+         f"<b>{top_retailer}</b> leads all retailers in total revenue, capturing the largest share of Adidas sales across the dataset period."),
+        (P_SHOE,   A1, "BEST-SELLING PRODUCT",
+         f"<b>{top_product}</b> drives the most revenue, signalling strong consumer preference and a strategic pricing sweet spot."),
+        (P_GLOBE,  A2, "DOMINANT REGION",
+         f"The <b>{top_region}</b> region contributes the highest sales volume — the priority market for distribution and marketing."),
+        (P_CHART,  A5, "PREFERRED SALES CHANNEL",
+         f"<b>{top_method}</b> is the most productive channel by revenue, signalling where continued investment will yield highest returns."),
+        (P_TREND,  A1, "PEAK SALES MONTH",
+         f"Sales peaked in <b>{peak_month}</b>, likely driven by seasonal demand, promotions, or product launches — critical for inventory planning."),
+        (P_WAVE,   A3, "MARGIN HEALTH",
+         f"Average operating margin of <b>{avg_margin:.1f}%</b> reflects a healthy profitability baseline, with product-level optimisation opportunities remaining."),
+    ]
+    f1, f2 = st.columns(2)
+    for i, (icon_d, ic, title, body) in enumerate(findings1):
+        with (f1 if i % 2 == 0 else f2):
+            st.markdown(f"""
+            <div class="finding-card">
+                <h4>{svg(icon_d, 13, ic)}{title}</h4>
+                <p>{body}</p>
+            </div>""", unsafe_allow_html=True)
+
+# ════════════════════════════════════════════════════════════
+#  PAGE 2 — GEO & PRODUCT DEEP DIVE
+# ════════════════════════════════════════════════════════════
+else:
+    df = filter_p2(df_raw)
+
+    # ── Header ──────────────────────────────────
+    st.markdown(
+        '<div class="dashboard-header">' + LOGO_SVG +
+        '<div class="header-text">'
+        '<h1>GEO &amp; PRODUCT DEEP DIVE</h1>'
+        '<p>State &nbsp;&middot;&nbsp; City Rankings &nbsp;&middot;&nbsp; Product Profitability'
+        ' &nbsp;&middot;&nbsp; Price-Volume &nbsp;&middot;&nbsp; Sales vs Profit</p>'
+        '</div></div>',
+        unsafe_allow_html=True)
+
+    # ── KPIs ────────────────────────────────────
+    top_state    = df.groupby('State')['Total Sales'].sum().idxmax()
+    top_prod2    = df.groupby('Product')['Total Sales'].sum().idxmax()
+    top_ret_prof = df.groupby('Retailer')['Operating Profit'].sum().idxmax()
+    avg_price2   = df['Price per Unit'].mean()
+
+    st.markdown(f"""
+    <div class="kpi-grid">
+      <div class="kpi-card kpi-c1">
+        <span class="kpi-icon">{svg(P_MAP, 20, A1)}</span>
+        <div class="kpi-label">Highest Selling State</div>
+        <div class="kpi-value" style="font-size:1.05rem;">{top_state}</div>
+        <div class="kpi-sub">By Total Revenue</div>
+      </div>
+      <div class="kpi-card kpi-c2">
+        <span class="kpi-icon">{svg(P_TAG, 20, A2)}</span>
+        <div class="kpi-label">Highest Selling Product</div>
+        <div class="kpi-value" style="font-size:0.88rem;">{top_prod2}</div>
+        <div class="kpi-sub">By Total Revenue</div>
+      </div>
+      <div class="kpi-card kpi-c3">
+        <span class="kpi-icon">{svg(P_STAR, 20, A4)}</span>
+        <div class="kpi-label">Most Profitable Retailer</div>
+        <div class="kpi-value" style="font-size:0.95rem;">{top_ret_prof}</div>
+        <div class="kpi-sub">By Operating Profit</div>
+      </div>
+      <div class="kpi-card kpi-c4">
+        <span class="kpi-icon">{svg(P_DOLLAR, 20, A5)}</span>
+        <div class="kpi-label">Avg Price / Unit</div>
+        <div class="kpi-value">${avg_price2:.2f}</div>
+        <div class="kpi-sub">Pricing Benchmark</div>
+      </div>
+      <div class="kpi-card kpi-c5">
+        <span class="kpi-icon">{svg(P_FILE, 20, A3)}</span>
+        <div class="kpi-label">Total Records</div>
+        <div class="kpi-value">{len(df):,}</div>
+        <div class="kpi-sub">Filtered Dataset</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Row 1: State Bar + City Bar ──────────────
+    c1, c2 = st.columns([1, 1])
+
+    with c1:
+        st.markdown(ct(P_MAP, "TOTAL SALES BY STATE — TOP 20 FILLED BAR"), unsafe_allow_html=True)
+        state_sales = (df.groupby('State')['Total Sales'].sum()
+                         .sort_values(ascending=False).head(20))
+        norm = state_sales.values / state_sales.max()
+        # cyan gradient encoding intensity
+        cs = [f"#{int(0):02x}{int(n*229):02x}{int(n*255):02x}" for n in norm]
+        fig, ax = plt.subplots(figsize=(7, 6))
+        fig.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CARD_BG)
+        ax.barh(state_sales.index[::-1], state_sales.values[::-1] / 1e6,
+                color=cs[::-1], edgecolor='none', height=0.65)
+        for i, v in enumerate(state_sales.values[::-1]):
+            ax.text(v / 1e6 + 0.1, i, f'${v/1e6:.1f}M',
+                    va='center', fontsize=7, color=TSEC)
+        ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+        ax.grid(axis='x', alpha=0.2)
+        ax.tick_params(axis='y', labelsize=7.5)
+        ax.set_xlabel('Sales (M$)', fontsize=8)
+        plt.tight_layout()
+        show_fig(fig)
+
+    with c2:
+        st.markdown(ct(P_CITY, "TOP 10 CITIES BY SALES — BAR CHART"), unsafe_allow_html=True)
+        city_sales = (df.groupby('City')['Total Sales'].sum()
+                        .sort_values(ascending=False).head(10))
+        fig, ax = plt.subplots(figsize=(7, 6))
+        fig.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CARD_BG)
+        xp = np.arange(len(city_sales))
+        ax.bar(xp, city_sales.values / 1e6,
+               color=PALETTE[:len(city_sales)], edgecolor='none', width=0.6)
+        for i, v in enumerate(city_sales.values):
+            ax.text(i, v / 1e6 + 0.15, f'${v/1e6:.1f}M',
+                    ha='center', fontsize=7, color=TSEC)
+        ax.set_xticks(xp)
+        ax.set_xticklabels(city_sales.index, rotation=35, ha='right', fontsize=8)
+        ax.set_ylabel('Sales (M$)', fontsize=8)
+        ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+        ax.grid(axis='y', alpha=0.2)
+        plt.tight_layout()
+        show_fig(fig)
+
+    # ── Row 2: Profit by Product + Price vs Units ─
+    c3, c4 = st.columns([1, 1])
+
+    with c3:
+        st.markdown(ct(P_PROFIT, "PROFIT BY PRODUCT — COLUMN CHART"), unsafe_allow_html=True)
+        prod_profit = (df.groupby('Product')['Operating Profit'].sum()
+                         .sort_values(ascending=False))
+        fig, ax = plt.subplots(figsize=(7, 4))
+        fig.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CARD_BG)
+        xp = np.arange(len(prod_profit))
+        ax.bar(xp, prod_profit.values / 1e6,
+               color=PALETTE[:len(prod_profit)], edgecolor='none', width=0.55)
+        for i, v in enumerate(prod_profit.values):
+            ax.text(i, v / 1e6 + 0.15, f'${v/1e6:.1f}M',
+                    ha='center', fontsize=7, color=TSEC)
+        ax.set_xticks(xp)
+        ax.set_xticklabels([p.replace("'s ", "\n") for p in prod_profit.index], fontsize=7.5)
+        ax.set_ylabel('Profit (M$)', fontsize=8)
+        ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+        ax.grid(axis='y', alpha=0.2)
+        plt.tight_layout()
+        show_fig(fig)
+
+    with c4:
+        st.markdown(ct(P_SCATTER, "PRICE vs UNITS SOLD — SCATTER PLOT"), unsafe_allow_html=True)
+        samp = df.sample(min(1500, len(df)), random_state=42)
+        prods_u  = df['Product'].unique()
+        cmap_p   = {p: PALETTE[i % len(PALETTE)] for i, p in enumerate(prods_u)}
+        c_list   = [cmap_p[p] for p in samp['Product']]
+        fig, ax = plt.subplots(figsize=(7, 4))
+        fig.patch.set_facecolor(CARD_BG)
+        ax.set_facecolor(CARD_BG)
+        ax.scatter(samp['Price per Unit'], samp['Units Sold'],
+                   c=c_list, alpha=0.55, s=18, edgecolors='none')
+        handles = [mpatches.Patch(color=cmap_p[p], label=p) for p in prods_u]
+        ax.legend(handles=handles, fontsize=6.5, loc='upper right', framealpha=0.3)
+        ax.set_xlabel('Price per Unit ($)', fontsize=8)
+        ax.set_ylabel('Units Sold', fontsize=8)
+        ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+        ax.grid(alpha=0.2)
+        plt.tight_layout()
+        show_fig(fig)
+
+    # ── Row 3: Sales vs Profit (full width) ──────
+    st.markdown(ct(P_SCATTER, "SALES vs OPERATING PROFIT BY RETAILER — SCATTER PLOT", A2),
+                unsafe_allow_html=True)
+    samp2    = df.sample(min(2000, len(df)), random_state=7)
+    retailers = df['Retailer'].unique()
+    cmap_r   = {r: PALETTE[i % len(PALETTE)] for i, r in enumerate(retailers)}
+    c_ret    = [cmap_r[r] for r in samp2['Retailer']]
+    fig, ax = plt.subplots(figsize=(14, 4))
+    fig.patch.set_facecolor(CARD_BG)
+    ax.set_facecolor(CARD_BG)
+    ax.scatter(samp2['Total Sales'], samp2['Operating Profit'],
+               c=c_ret, alpha=0.5, s=22, edgecolors='none')
+    handles2 = [mpatches.Patch(color=cmap_r[r], label=r) for r in retailers]
+    ax.legend(handles=handles2, fontsize=8, loc='upper left',
+              framealpha=0.3, ncol=len(retailers))
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f'${v/1e3:.0f}K'))
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f'${v/1e3:.0f}K'))
+    ax.set_xlabel('Total Sales', fontsize=8)
+    ax.set_ylabel('Operating Profit', fontsize=8)
+    ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+    ax.grid(alpha=0.15)
+    plt.tight_layout()
+    show_fig(fig)
+
+    # ── Key Findings ────────────────────────────
+    st.markdown(sl(P_FIND, "KEY FINDINGS — GEO & PRODUCT"), unsafe_allow_html=True)
+
+    top_city         = df.groupby('City')['Total Sales'].sum().idxmax()
+    top_state_profit = df.groupby('State')['Operating Profit'].sum().idxmax()
+    high_margin_prod = df.groupby('Product')['Operating Margin'].mean().idxmax()
+    high_vol_prod    = df.groupby('Product')['Units Sold'].mean().idxmax()
+
+    findings2 = [
+        (P_CITY,    A1, "TOP PERFORMING CITY",
+         f"<b>{top_city}</b> ranks as the highest-revenue city — Adidas's most critical urban market for sales concentration."),
+        (P_MAP,     A2, "TOP PROFIT STATE",
+         f"<b>{top_state_profit}</b> generates the most operating profit, suggesting strong operational efficiency or favourable pricing dynamics."),
+        (P_TAG,     A4, "HIGHEST MARGIN PRODUCT",
+         f"<b>{high_margin_prod}</b> commands the best average margin, making it Adidas's most financially efficient product line."),
+        (P_FLASH,   A5, "HIGHEST VOLUME PRODUCT",
+         f"<b>{high_vol_prod}</b> achieves the highest average units sold per transaction, indicating strong mass-market demand."),
+        (P_SCATTER, A1, "SALES-PROFIT CORRELATION",
+         "The scatter analysis confirms a strong positive linear relationship between total sales and operating profit — revenue growth directly drives profitability."),
+        (P_ALERT,   A3, "PRICE SENSITIVITY",
+         "Lower-priced products (under $45) consistently outperform in units sold, suggesting significant price elasticity in the Adidas consumer base."),
+    ]
+    g1, g2 = st.columns(2)
+    for i, (icon_d, ic, title, body) in enumerate(findings2):
+        with (g1 if i % 2 == 0 else g2):
+            st.markdown(f"""
+            <div class="finding-card">
+                <h4>{svg(icon_d, 13, ic)}{title}</h4>
+                <p>{body}</p>
+            </div>""", unsafe_allow_html=True)
+
+# ── Footer ───────────────────────────────────────────────────
+st.markdown(f"""
+<div style="text-align:center;padding:28px 0 10px;font-family:'JetBrains Mono',monospace;
+            font-size:0.52rem;color:{TSEC}44;letter-spacing:2px;">
+    ADIDAS SALES INTELLIGENCE DASHBOARD &nbsp;·&nbsp; STREAMLIT + MATPLOTLIB + PANDAS + NUMPY
+</div>
+""", unsafe_allow_html=True)

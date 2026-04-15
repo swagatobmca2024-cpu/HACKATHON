@@ -1,614 +1,711 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+import matplotlib.patheffects as pe
+from PIL import Image, ImageDraw, ImageOps
 import io
-import warnings
-warnings.filterwarnings("ignore")
+import base64
+import random
+import time
+import math
 
-# ─── PAGE CONFIG ───────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+#  PAGE CONFIG
+# ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="Advanced CSV Analytics",
-    page_icon="📊",
+    page_title="🐍 Snakes & Ladders",
+    page_icon="🐍",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed",
 )
 
-# ─── CUSTOM CSS ────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+#  GLOBAL CSS  (retro arcade vibe)
+# ─────────────────────────────────────────────
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Nunito:wght@400;700;900&display=swap');
 
-    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+html, body, [class*="css"] {
+    font-family: 'Nunito', sans-serif;
+    background: #0d0d1a;
+    color: #f0e6ff;
+}
 
-    .main { background: #0f1117; }
+.stApp {
+    background: radial-gradient(ellipse at top, #1a0a2e 0%, #0d0d1a 60%);
+}
 
-    .block-container { padding: 1.5rem 2rem 2rem 2rem; max-width: 100%; }
+h1, h2, h3 {
+    font-family: 'Press Start 2P', monospace !important;
+    color: #ffe94d !important;
+    text-shadow: 0 0 20px #ffaa00, 0 0 40px #ff6600;
+}
 
-    /* Metric cards */
-    .metric-card {
-        background: linear-gradient(135deg, #1e2130 0%, #252a3d 100%);
-        border: 1px solid #2d3250;
-        border-radius: 16px;
-        padding: 1.2rem 1.5rem;
-        text-align: center;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-    }
-    .metric-value {
-        font-size: 2rem;
-        font-weight: 700;
-        background: linear-gradient(90deg, #6c63ff, #a78bfa);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        line-height: 1.1;
-    }
-    .metric-label {
-        font-size: 0.75rem;
-        font-weight: 500;
-        color: #8b92b3;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-top: 0.35rem;
-    }
-    .metric-delta {
-        font-size: 0.78rem;
-        color: #34d399;
-        margin-top: 0.2rem;
-        font-weight: 500;
-    }
+.pixel-title {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 1.6rem;
+    color: #ffe94d;
+    text-shadow: 3px 3px 0px #cc5500, 0 0 30px #ffaa00;
+    text-align: center;
+    margin-bottom: 0.3rem;
+    line-height: 2.2rem;
+}
 
-    /* Section headers */
-    .section-header {
-        font-size: 1.05rem;
-        font-weight: 600;
-        color: #c8cde8;
-        margin: 1.5rem 0 0.75rem 0;
-        padding-bottom: 0.4rem;
-        border-bottom: 1px solid #2d3250;
-        letter-spacing: 0.03em;
-    }
+.subtitle {
+    font-family: 'Nunito', sans-serif;
+    font-size: 1.1rem;
+    color: #b8a0ff;
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
 
-    /* Insight pills */
-    .insight-pill {
-        display: inline-block;
-        background: #1e2130;
-        border: 1px solid #3d4275;
-        border-radius: 20px;
-        padding: 0.25rem 0.75rem;
-        font-size: 0.75rem;
-        color: #a78bfa;
-        margin: 0.2rem;
-    }
+.player-card {
+    background: linear-gradient(135deg, #1e1040 0%, #2d1b69 100%);
+    border: 2px solid #5533aa;
+    border-radius: 16px;
+    padding: 1.2rem;
+    text-align: center;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 20px rgba(85,51,170,0.3);
+}
 
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 4px;
-        background: #1a1e2e;
-        border-radius: 12px;
-        padding: 4px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 8px;
-        color: #8b92b3;
-        font-weight: 500;
-        font-size: 0.88rem;
-        padding: 0.4rem 1.1rem;
-        border: none;
-    }
-    .stTabs [aria-selected="true"] {
-        background: #6c63ff !important;
-        color: white !important;
-    }
+.player-card:hover {
+    border-color: #ffe94d;
+    box-shadow: 0 0 25px rgba(255,233,77,0.4);
+    transform: translateY(-3px);
+}
 
-    /* Upload zone */
-    .upload-hero {
-        background: linear-gradient(135deg, #1a1e2e 0%, #1e2540 100%);
-        border: 2px dashed #3d4275;
-        border-radius: 20px;
-        padding: 3rem;
-        text-align: center;
-        margin: 2rem 0;
-    }
-    .upload-title {
-        font-size: 1.6rem;
-        font-weight: 700;
-        color: #e8eaf6;
-        margin-bottom: 0.5rem;
-    }
-    .upload-sub {
-        color: #8b92b3;
-        font-size: 0.9rem;
-    }
+.player-card.active-player {
+    border: 3px solid #ffe94d !important;
+    box-shadow: 0 0 35px rgba(255,233,77,0.7) !important;
+    background: linear-gradient(135deg, #2d2000 0%, #4a3500 100%) !important;
+    animation: pulse-border 1.5s infinite;
+}
 
-    /* Stmetric override */
-    [data-testid="stMetricValue"] { font-size: 1.6rem !important; font-weight: 700 !important; color: #a78bfa !important; }
-    [data-testid="stMetricLabel"] { font-size: 0.72rem !important; color: #8b92b3 !important; }
-    [data-testid="stMetricDelta"] { font-size: 0.78rem !important; }
+@keyframes pulse-border {
+    0%, 100% { box-shadow: 0 0 20px rgba(255,233,77,0.6); }
+    50% { box-shadow: 0 0 45px rgba(255,233,77,1); }
+}
 
-    /* Sidebar */
-    section[data-testid="stSidebar"] {
-        background: #13161f;
-        border-right: 1px solid #1e2130;
-    }
-    section[data-testid="stSidebar"] .block-container { padding: 1rem; }
+.player-name {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.55rem;
+    color: #ffe94d;
+    margin-top: 0.5rem;
+    word-break: break-word;
+}
 
-    /* Dataframe */
-    .stDataFrame { border-radius: 12px; overflow: hidden; }
+.player-pos {
+    font-size: 0.8rem;
+    color: #b8a0ff;
+    margin-top: 0.3rem;
+}
 
-    /* Alerts / info */
-    .stAlert { border-radius: 10px; }
+.dice-display {
+    font-size: 4rem;
+    text-align: center;
+    animation: dice-spin 0.5s ease-out;
+    filter: drop-shadow(0 0 12px #ffe94d);
+}
 
-    /* Divider */
-    hr { border-color: #1e2130; }
+@keyframes dice-spin {
+    0% { transform: rotate(0deg) scale(0.5); opacity: 0; }
+    60% { transform: rotate(20deg) scale(1.2); opacity: 1; }
+    100% { transform: rotate(0deg) scale(1); opacity: 1; }
+}
 
-    /* Plotly chart background */
-    .js-plotly-plot { border-radius: 14px; overflow: hidden; }
+.event-box {
+    background: linear-gradient(135deg, #1a0a2e, #2d1b69);
+    border-left: 4px solid #ffe94d;
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    margin: 0.5rem 0;
+    font-size: 0.85rem;
+    color: #f0e6ff;
+}
+
+.event-snake {
+    border-left-color: #ff4444 !important;
+    background: linear-gradient(135deg, #2e0a0a, #4a1515) !important;
+}
+
+.event-ladder {
+    border-left-color: #44ff88 !important;
+    background: linear-gradient(135deg, #0a2e15, #154a25) !important;
+}
+
+.event-win {
+    border-left-color: #ffe94d !important;
+    background: linear-gradient(135deg, #2e2a00, #4a4400) !important;
+    font-size: 1rem !important;
+    font-weight: 900 !important;
+}
+
+.stButton > button {
+    font-family: 'Press Start 2P', monospace !important;
+    font-size: 0.6rem !important;
+    background: linear-gradient(135deg, #5533aa, #7744cc) !important;
+    color: #ffe94d !important;
+    border: 2px solid #ffe94d !important;
+    border-radius: 8px !important;
+    padding: 0.7rem 1.2rem !important;
+    transition: all 0.2s !important;
+    box-shadow: 0 4px 15px rgba(85,51,170,0.5) !important;
+    text-shadow: none !important;
+}
+
+.stButton > button:hover {
+    background: linear-gradient(135deg, #7744cc, #9955ee) !important;
+    box-shadow: 0 0 25px rgba(255,233,77,0.6) !important;
+    transform: translateY(-2px) !important;
+}
+
+.roll-btn > button {
+    font-size: 0.7rem !important;
+    padding: 1rem 2rem !important;
+    background: linear-gradient(135deg, #cc4400, #ff6600) !important;
+    border-color: #ffaa00 !important;
+    color: #fff !important;
+    box-shadow: 0 6px 25px rgba(255,102,0,0.6) !important;
+    width: 100% !important;
+}
+
+.upload-zone {
+    background: linear-gradient(135deg, #1a1040, #2d1b69);
+    border: 2px dashed #5533aa;
+    border-radius: 16px;
+    padding: 1.5rem;
+    text-align: center;
+}
+
+.win-banner {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 1.2rem;
+    color: #ffe94d;
+    text-align: center;
+    text-shadow: 0 0 30px #ffaa00, 3px 3px 0 #cc5500;
+    animation: win-flash 0.8s infinite;
+    padding: 1.5rem;
+    background: linear-gradient(135deg, #2e2a00, #4a4000);
+    border: 3px solid #ffe94d;
+    border-radius: 16px;
+    margin: 1rem 0;
+}
+
+@keyframes win-flash {
+    0%, 100% { text-shadow: 0 0 20px #ffaa00; }
+    50% { text-shadow: 0 0 50px #ffe94d, 0 0 80px #ff6600; }
+}
+
+.log-entry { padding: 0.3rem 0; border-bottom: 1px solid #2d1b69; font-size: 0.82rem; }
+
+/* hide streamlit default elements */
+#MainMenu, footer, header { visibility: hidden; }
+.block-container { padding-top: 1.5rem !important; }
+
+div[data-testid="stImage"] img {
+    border-radius: 50% !important;
+    border: 3px solid #5533aa !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
-PLOTLY_THEME = dict(
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="#161926",
-    font=dict(family="Inter", color="#c8cde8", size=12),
-    colorway=["#6c63ff","#f59e0b","#34d399","#f87171","#38bdf8","#fb923c","#a78bfa","#4ade80"],
-    margin=dict(l=20, r=20, t=40, b=20),
-    legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="#c8cde8")),
-    xaxis=dict(gridcolor="#1e2130", zerolinecolor="#1e2130", color="#8b92b3"),
-    yaxis=dict(gridcolor="#1e2130", zerolinecolor="#1e2130", color="#8b92b3"),
-    title=dict(font=dict(size=14, color="#e8eaf6"), x=0.02),
-)
+# ─────────────────────────────────────────────
+#  SOUND SYSTEM  (base64 HTML audio)
+# ─────────────────────────────────────────────
+def play_sound(sound_type: str):
+    """Generate and play sounds using Web Audio API via HTML."""
+    sounds = {
+        "dice": """
+            var ctx=new AudioContext();
+            for(var i=0;i<6;i++){
+                var o=ctx.createOscillator(),g=ctx.createGain();
+                o.connect(g);g.connect(ctx.destination);
+                o.frequency.value=300+Math.random()*400;
+                o.type='square';
+                g.gain.setValueAtTime(0.15,ctx.currentTime+i*0.07);
+                g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+i*0.07+0.06);
+                o.start(ctx.currentTime+i*0.07);
+                o.stop(ctx.currentTime+i*0.07+0.06);
+            }
+        """,
+        "snake": """
+            var ctx=new AudioContext();
+            var o=ctx.createOscillator(),g=ctx.createGain();
+            o.connect(g);g.connect(ctx.destination);
+            o.type='sawtooth';
+            o.frequency.setValueAtTime(600,ctx.currentTime);
+            o.frequency.exponentialRampToValueAtTime(80,ctx.currentTime+0.8);
+            g.gain.setValueAtTime(0.3,ctx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.8);
+            o.start(ctx.currentTime);o.stop(ctx.currentTime+0.8);
+        """,
+        "ladder": """
+            var ctx=new AudioContext();
+            var notes=[261,329,392,523,659];
+            notes.forEach(function(freq,i){
+                var o=ctx.createOscillator(),g=ctx.createGain();
+                o.connect(g);g.connect(ctx.destination);
+                o.frequency.value=freq;o.type='sine';
+                g.gain.setValueAtTime(0.2,ctx.currentTime+i*0.1);
+                g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+i*0.1+0.15);
+                o.start(ctx.currentTime+i*0.1);o.stop(ctx.currentTime+i*0.1+0.15);
+            });
+        """,
+        "win": """
+            var ctx=new AudioContext();
+            var melody=[523,659,784,1047,784,1047,1319];
+            melody.forEach(function(freq,i){
+                var o=ctx.createOscillator(),g=ctx.createGain();
+                o.connect(g);g.connect(ctx.destination);
+                o.frequency.value=freq;o.type='sine';
+                g.gain.setValueAtTime(0.25,ctx.currentTime+i*0.12);
+                g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+i*0.12+0.2);
+                o.start(ctx.currentTime+i*0.12);o.stop(ctx.currentTime+i*0.12+0.25);
+            });
+        """,
+        "move": """
+            var ctx=new AudioContext();
+            var o=ctx.createOscillator(),g=ctx.createGain();
+            o.connect(g);g.connect(ctx.destination);
+            o.frequency.value=440;o.type='sine';
+            g.gain.setValueAtTime(0.1,ctx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.1);
+            o.start(ctx.currentTime);o.stop(ctx.currentTime+0.1);
+        """,
+    }
+    js = sounds.get(sound_type, sounds["move"])
+    st.markdown(f"<script>{js}</script>", unsafe_allow_html=True)
 
-def apply_theme(fig, title=""):
-    fig.update_layout(**PLOTLY_THEME)
-    if title:
-        fig.update_layout(title_text=title)
-    return fig
+# ─────────────────────────────────────────────
+#  GAME CONSTANTS
+# ─────────────────────────────────────────────
+SNAKES = {16:6, 47:26, 49:11, 56:53, 62:19, 64:60, 87:24, 93:73, 95:75, 99:78}
+LADDERS = {4:14, 9:31, 20:38, 28:84, 40:59, 51:67, 63:81, 71:91}
+PLAYER_COLORS = ["#FF6B6B","#4ECDC4","#FFE66D","#A8E6CF"]
+DICE_FACES = ["⚀","⚁","⚂","⚃","⚄","⚅"]
 
+# ─────────────────────────────────────────────
+#  HELPERS
+# ─────────────────────────────────────────────
+def circular_crop(img: Image.Image, size=80) -> Image.Image:
+    img = img.convert("RGBA").resize((size, size), Image.LANCZOS)
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse((0,0,size,size), fill=255)
+    result = Image.new("RGBA", (size, size), (0,0,0,0))
+    result.paste(img, mask=mask)
+    return result
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  ANALYSIS ENGINE
-# ══════════════════════════════════════════════════════════════════════════════
+def img_to_base64(img: Image.Image) -> str:
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
 
-def detect_column_types(df):
-    numeric = df.select_dtypes(include=np.number).columns.tolist()
-    categorical = df.select_dtypes(include=["object", "category", "bool"]).columns.tolist()
-    datetime_cols = []
-    for c in df.columns:
-        if c not in numeric:
-            try:
-                parsed = pd.to_datetime(df[c], infer_datetime_format=True, errors="coerce")
-                if parsed.notna().sum() / len(df) > 0.5:
-                    datetime_cols.append(c)
-            except Exception:
-                pass
-    categorical = [c for c in categorical if c not in datetime_cols]
-    return numeric, categorical, datetime_cols
+def cell_to_xy(cell: int):
+    """Convert cell number (1-100) to board (col, row) with boustrophedon."""
+    cell -= 1
+    row = cell // 10
+    col = cell % 10
+    if row % 2 == 1:
+        col = 9 - col
+    return col, row
 
+# ─────────────────────────────────────────────
+#  BOARD DRAWING
+# ─────────────────────────────────────────────
+def draw_board(positions, avatars, names, colors, current_player):
+    fig, ax = plt.subplots(figsize=(9, 9))
+    fig.patch.set_facecolor("#0d0d1a")
+    ax.set_facecolor("#0d0d1a")
+    ax.set_xlim(-0.5, 9.5)
+    ax.set_ylim(-0.5, 9.5)
+    ax.set_aspect('equal')
+    ax.axis('off')
 
-def render_overview(df):
-    numeric, categorical, datetime_cols = detect_column_types(df)
-    n_rows, n_cols = df.shape
-    missing_pct = (df.isnull().sum().sum() / (n_rows * n_cols) * 100)
-    duplicates = df.duplicated().sum()
-
-    st.markdown('<div class="section-header">📋 Dataset Overview</div>', unsafe_allow_html=True)
-
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Rows", f"{n_rows:,}")
-    c2.metric("Columns", f"{n_cols}")
-    c3.metric("Numeric", f"{len(numeric)}")
-    c4.metric("Missing %", f"{missing_pct:.1f}%")
-    c5.metric("Duplicates", f"{duplicates:,}")
-
-    col_a, col_b = st.columns([1.6, 1])
-
-    with col_a:
-        # Column types bar
-        type_counts = {"Numeric": len(numeric), "Categorical": len(categorical), "Datetime": len(datetime_cols)}
-        fig = go.Figure(go.Bar(
-            x=list(type_counts.keys()),
-            y=list(type_counts.values()),
-            marker_color=["#6c63ff", "#f59e0b", "#34d399"],
-            text=list(type_counts.values()),
-            textposition="outside",
-        ))
-        apply_theme(fig, "Column Type Distribution")
-        fig.update_layout(showlegend=False, height=250)
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col_b:
-        # Missing values heatmap-lite
-        miss = df.isnull().sum()
-        miss = miss[miss > 0].sort_values(ascending=False)
-        if len(miss) > 0:
-            fig2 = go.Figure(go.Bar(
-                x=miss.values,
-                y=miss.index.tolist(),
-                orientation="h",
-                marker_color="#f87171",
-                text=miss.values,
-                textposition="outside",
-            ))
-            apply_theme(fig2, "Missing Values by Column")
-            fig2.update_layout(height=250, yaxis=dict(autorange="reversed"))
-            st.plotly_chart(fig2, use_container_width=True)
+    # ── Cell colors
+    safe_cells = {1, 8, 13, 24, 38, 50, 68, 72, 100}
+    for num in range(1, 101):
+        cx, cy = cell_to_xy(num)
+        if num == 100:
+            color = "#ffe94d"
+        elif num in safe_cells:
+            color = "#2d4a1e"
+        elif (cx + cy) % 2 == 0:
+            color = "#1e1040"
         else:
-            st.success("✅ No missing values found!", icon="✅")
+            color = "#2d1b69"
 
-    # Data preview
-    st.markdown('<div class="section-header">🔍 Data Preview</div>', unsafe_allow_html=True)
-    st.dataframe(df.head(20), use_container_width=True, height=300)
+        rect = FancyBboxPatch((cx - 0.48, cy - 0.48), 0.96, 0.96,
+                              boxstyle="round,pad=0.04", linewidth=0.8,
+                              edgecolor="#3d2b79", facecolor=color)
+        ax.add_patch(rect)
 
+        txt_color = "#ffe94d" if num == 100 else "#7a6aaa" if num not in safe_cells else "#88ff88"
+        ax.text(cx, cy + 0.28, str(num), ha='center', va='center',
+                fontsize=5.5, color=txt_color, fontweight='bold',
+                fontfamily='monospace')
 
-def render_numeric_analysis(df):
-    numeric, _, _ = detect_column_types(df)
-    if not numeric:
-        st.info("No numeric columns found.")
-        return
+    # ── Snakes
+    for head, tail in SNAKES.items():
+        hx, hy = cell_to_xy(head)
+        tx, ty = cell_to_xy(tail)
+        mid_x = (hx + tx) / 2 + random.choice([-1, 1]) * 0.8
+        mid_y = (hy + ty) / 2
+        xs = np.linspace(hx, tx, 60)
+        ys = []
+        for t in np.linspace(0, 1, 60):
+            bx = (1-t)**2 * hx + 2*(1-t)*t * mid_x + t**2 * tx
+            by_ = (1-t)**2 * hy + 2*(1-t)*t * mid_y + t**2 * ty
+            wiggle = 0.18 * math.sin(t * math.pi * 5)
+            ys.append(by_ + wiggle)
 
-    st.markdown('<div class="section-header">📈 Numeric Column Analysis</div>', unsafe_allow_html=True)
+        bx_pts = [(1-t)**2*hx + 2*(1-t)*t*mid_x + t**2*tx for t in np.linspace(0,1,60)]
+        ax.plot(bx_pts, ys, color="#ff4444", linewidth=3.5, alpha=0.85,
+                solid_capstyle='round', zorder=3)
+        ax.plot(bx_pts, ys, color="#ff8888", linewidth=1.2, alpha=0.5, zorder=4)
+        # snake head circle
+        ax.add_patch(plt.Circle((hx, hy), 0.22, color="#ff2222", zorder=5))
+        ax.text(hx, hy, "🐍", ha='center', va='center', fontsize=7, zorder=6)
 
-    # Descriptive stats table
-    desc = df[numeric].describe().T.round(2)
-    desc["skewness"] = df[numeric].skew().round(2)
-    desc["kurtosis"] = df[numeric].kurtosis().round(2)
-    desc["cv%"] = ((df[numeric].std() / df[numeric].mean()) * 100).round(1)
-    st.dataframe(desc, use_container_width=True)
+    # ── Ladders
+    for bottom, top in LADDERS.items():
+        bx, by = cell_to_xy(bottom)
+        tx, ty = cell_to_xy(top)
+        offset = 0.12
+        ax.plot([bx - offset, tx - offset], [by, ty], color="#44ff88",
+                linewidth=2.5, alpha=0.8, zorder=3)
+        ax.plot([bx + offset, tx + offset], [by, ty], color="#44ff88",
+                linewidth=2.5, alpha=0.8, zorder=3)
+        rungs = 6
+        for i in range(rungs):
+            t = i / (rungs - 1)
+            rx = bx - offset + t * (tx - bx)
+            ry = by + t * (ty - by)
+            ax.plot([rx - offset, rx + offset], [ry, ry], color="#88ffaa",
+                    linewidth=1.8, alpha=0.7, zorder=4)
+        ax.text(bx, by - 0.28, "🪜", ha='center', va='center', fontsize=7, zorder=6)
 
-    col_sel = st.selectbox("Select column for deep-dive", numeric, key="num_col")
+    # ── Player tokens
+    token_offsets = [(-0.18, 0.12), (0.18, 0.12), (-0.18, -0.12), (0.18, -0.12)]
+    for i, (pos, color, name) in enumerate(zip(positions, colors, names)):
+        if pos < 1: continue
+        cx, cy = cell_to_xy(pos)
+        ox, oy = token_offsets[i]
+        is_current = (i == current_player)
+        ring_color = "#ffe94d" if is_current else color
+        ring_w = 2.5 if is_current else 1.5
+        circ = plt.Circle((cx + ox, cy + oy), 0.16, color=color,
+                          zorder=8, linewidth=ring_w, edgecolor=ring_color)
+        ax.add_patch(circ)
+        initial = name[0].upper() if name else "?"
+        ax.text(cx + ox, cy + oy, initial, ha='center', va='center',
+                fontsize=6, color='#0d0d1a', fontweight='bold', zorder=9)
+        if is_current:
+            glow = plt.Circle((cx + ox, cy + oy), 0.22, color=color,
+                             alpha=0.3, zorder=7)
+            ax.add_patch(glow)
 
-    c1, c2 = st.columns(2)
+    # ── Border glow
+    for spine in ['top','bottom','left','right']:
+        ax.spines[spine].set_visible(False)
+    border = FancyBboxPatch((-0.5, -0.5), 10, 10, boxstyle="round,pad=0.1",
+                           linewidth=3, edgecolor="#5533aa", facecolor="none",
+                           zorder=10)
+    ax.add_patch(border)
 
-    with c1:
-        fig = px.histogram(df, x=col_sel, nbins=40, title=f"Distribution — {col_sel}",
-                           color_discrete_sequence=["#6c63ff"])
-        apply_theme(fig)
-        fig.update_traces(marker_line_color="#a78bfa", marker_line_width=0.5)
-        st.plotly_chart(fig, use_container_width=True)
+    plt.tight_layout(pad=0.2)
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=130, bbox_inches='tight',
+                facecolor="#0d0d1a", edgecolor='none')
+    plt.close(fig)
+    buf.seek(0)
+    return buf
 
-    with c2:
-        fig2 = px.box(df, y=col_sel, title=f"Box Plot — {col_sel}",
-                      color_discrete_sequence=["#f59e0b"])
-        apply_theme(fig2)
-        st.plotly_chart(fig2, use_container_width=True)
+# ─────────────────────────────────────────────
+#  SESSION STATE INIT
+# ─────────────────────────────────────────────
+def init_state():
+    defaults = {
+        "phase": "upload",       # upload → select → play → gameover
+        "photos": [None]*4,
+        "names": ["Player 1","Player 2","Player 3","Player 4"],
+        "chosen_player": None,
+        "positions": [0]*4,
+        "current_turn": 0,
+        "log": [],
+        "last_dice": None,
+        "last_event": None,
+        "winner": None,
+        "board_needs_update": True,
+        "board_img": None,
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
-    if len(numeric) >= 2:
-        st.markdown('<div class="section-header">🔗 Correlation Heatmap</div>', unsafe_allow_html=True)
-        corr = df[numeric].corr().round(2)
-        fig3 = px.imshow(corr, text_auto=True, aspect="auto",
-                         color_continuous_scale="RdBu_r", zmin=-1, zmax=1,
-                         title="Pearson Correlation Matrix")
-        apply_theme(fig3)
-        fig3.update_layout(height=max(350, len(numeric) * 40))
-        st.plotly_chart(fig3, use_container_width=True)
+init_state()
+S = st.session_state
 
-        # Scatter
-        st.markdown('<div class="section-header">🔵 Scatter Explorer</div>', unsafe_allow_html=True)
-        cx, cy = st.columns(2)
-        x_col = cx.selectbox("X axis", numeric, key="sx")
-        y_col = cy.selectbox("Y axis", numeric, index=min(1, len(numeric)-1), key="sy")
-        _, cat_cols, _ = detect_column_types(df)
-        color_col = st.selectbox("Color by (optional)", ["None"] + cat_cols, key="sc")
-        color = None if color_col == "None" else color_col
-        fig4 = px.scatter(df, x=x_col, y=y_col, color=color,
-                          trendline="ols", title=f"{x_col} vs {y_col}",
-                          opacity=0.7)
-        apply_theme(fig4)
-        st.plotly_chart(fig4, use_container_width=True)
+# ─────────────────────────────────────────────
+#  PHASE 1 — UPLOAD
+# ─────────────────────────────────────────────
+if S.phase == "upload":
+    st.markdown('<div class="pixel-title">🐍 SNAKES & LADDERS 🪜</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Upload 4 player photos to begin the chaos!</div>', unsafe_allow_html=True)
 
+    cols = st.columns(4)
+    all_uploaded = True
+    for i, col in enumerate(cols):
+        with col:
+            st.markdown(f'<div class="upload-zone">', unsafe_allow_html=True)
+            label = "👤 YOU" if i == 0 else f"🎮 Friend {i}"
+            st.markdown(f"**{label}**")
+            name = st.text_input(f"Name", value=S.names[i], key=f"name_{i}",
+                                 label_visibility="collapsed",
+                                 placeholder=f"Player {i+1} name")
+            S.names[i] = name
+            uploaded = st.file_uploader(f"Photo {i+1}", type=["jpg","jpeg","png"],
+                                        key=f"upload_{i}", label_visibility="collapsed")
+            if uploaded:
+                img = Image.open(uploaded)
+                S.photos[i] = img
+                cropped = circular_crop(img, 100)
+                st.image(cropped, use_container_width=False, width=100)
+            elif S.photos[i]:
+                cropped = circular_crop(S.photos[i], 100)
+                st.image(cropped, use_container_width=False, width=100)
+            else:
+                st.markdown("📷 *Upload photo*")
+                all_uploaded = False
+            st.markdown('</div>', unsafe_allow_html=True)
 
-def render_categorical_analysis(df):
-    _, categorical, _ = detect_column_types(df)
-    if not categorical:
-        st.info("No categorical columns found.")
-        return
+    st.markdown("<br>", unsafe_allow_html=True)
+    _, mid, _ = st.columns([1,2,1])
+    with mid:
+        if all_uploaded:
+            if st.button("⚡ NEXT — PICK YOUR PLAYER ⚡"):
+                S.phase = "select"
+                st.rerun()
+        else:
+            st.info("📸 Upload all 4 photos to continue")
 
-    st.markdown('<div class="section-header">🏷️ Categorical Column Analysis</div>', unsafe_allow_html=True)
+# ─────────────────────────────────────────────
+#  PHASE 2 — SELECT PLAYER
+# ─────────────────────────────────────────────
+elif S.phase == "select":
+    st.markdown('<div class="pixel-title">👾 WHO ARE YOU?</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Pick your character — the others become SNAKES on the board!</div>', unsafe_allow_html=True)
 
-    col_sel = st.selectbox("Select column", categorical, key="cat_col")
-    vc = df[col_sel].value_counts().head(25)
-    top_pct = (vc.iloc[0] / len(df) * 100) if len(vc) > 0 else 0
+    cols = st.columns(4)
+    for i, col in enumerate(cols):
+        with col:
+            cropped = circular_crop(S.photos[i], 120)
+            st.image(cropped, use_container_width=False, width=120)
+            st.markdown(f'<div class="player-name">{S.names[i]}</div>', unsafe_allow_html=True)
+            if st.button(f"PICK ME!", key=f"pick_{i}"):
+                S.chosen_player = i
+                S.positions = [0, 0, 0, 0]
+                S.current_turn = i   # chosen player goes first
+                S.log = [f"🎮 {S.names[i]} chosen as player! Others are snakes... 🐍"]
+                S.phase = "play"
+                S.board_needs_update = True
+                st.rerun()
 
-    c1, c2 = st.columns(2)
+# ─────────────────────────────────────────────
+#  PHASE 3 — PLAY
+# ─────────────────────────────────────────────
+elif S.phase == "play":
+    # title row
+    st.markdown('<div class="pixel-title" style="font-size:1rem;">🐍 SNAKES & LADDERS 🪜</div>',
+                unsafe_allow_html=True)
 
-    with c1:
-        fig = px.bar(x=vc.index.astype(str), y=vc.values,
-                     labels={"x": col_sel, "y": "Count"},
-                     title=f"Value Counts — {col_sel}",
-                     color=vc.values,
-                     color_continuous_scale="Purples")
-        apply_theme(fig)
-        fig.update_layout(showlegend=False, coloraxis_showscale=False)
-        st.plotly_chart(fig, use_container_width=True)
+    board_col, ui_col = st.columns([3, 2], gap="medium")
 
-    with c2:
-        fig2 = px.pie(values=vc.values, names=vc.index.astype(str),
-                      title=f"Share — {col_sel}",
-                      hole=0.45)
-        apply_theme(fig2)
-        fig2.update_traces(textposition="inside", textinfo="percent+label")
-        st.plotly_chart(fig2, use_container_width=True)
+    # ── Render board (cached until move happens)
+    with board_col:
+        if S.board_needs_update or S.board_img is None:
+            buf = draw_board(S.positions, S.photos, S.names,
+                            PLAYER_COLORS, S.current_turn)
+            S.board_img = buf.read()
+            S.board_needs_update = False
+        st.image(S.board_img, use_container_width=True)
+
+    with ui_col:
+        # ── Player cards
+        cols2 = st.columns(2)
+        for i in range(4):
+            col = cols2[i % 2]
+            with col:
+                is_active = (i == S.current_turn)
+                is_chosen = (i == S.chosen_player)
+                card_class = "player-card active-player" if is_active else "player-card"
+                cropped = circular_crop(S.photos[i], 70)
+                img_b64 = img_to_base64(cropped)
+                role_tag = "🎮" if is_chosen else "🐍"
+                pos_txt = f"Cell {S.positions[i]}" if S.positions[i] > 0 else "Start"
+                turn_indicator = "▶ YOUR TURN" if is_active and is_chosen else ("▶ AI" if is_active else "")
+
+                st.markdown(f"""
+                <div class="{card_class}">
+                    <img src="data:image/png;base64,{img_b64}" width="55"
+                         style="border-radius:50%;border:3px solid {PLAYER_COLORS[i]};"/>
+                    <div class="player-name">{role_tag} {S.names[i][:10]}</div>
+                    <div class="player-pos">{pos_txt}</div>
+                    {"<div style='color:#ffe94d;font-size:0.6rem;margin-top:4px;'>"+turn_indicator+"</div>" if turn_indicator else ""}
+                </div>
+                """, unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ── Dice + event display
+        if S.last_dice:
+            st.markdown(f'<div class="dice-display">{DICE_FACES[S.last_dice-1]}</div>',
+                       unsafe_allow_html=True)
+            st.markdown(f'<div style="text-align:center;color:#b8a0ff;font-size:0.85rem;">Rolled: {S.last_dice}</div>',
+                       unsafe_allow_html=True)
+
+        if S.last_event:
+            ev_class = "event-box"
+            if "snake" in S.last_event.lower() or "bitten" in S.last_event.lower():
+                ev_class += " event-snake"
+            elif "ladder" in S.last_event.lower() or "climbed" in S.last_event.lower():
+                ev_class += " event-ladder"
+            elif "win" in S.last_event.lower() or "🎉" in S.last_event:
+                ev_class += " event-win"
+            st.markdown(f'<div class="{ev_class}">{S.last_event}</div>', unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ── Roll button (only show for chosen player's turn)
+        is_my_turn = (S.current_turn == S.chosen_player)
+
+        if is_my_turn:
+            st.markdown('<div class="roll-btn">', unsafe_allow_html=True)
+            roll_pressed = st.button("🎲 ROLL THE DICE!")
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            roll_pressed = False
+            ai_btn = st.button(f"▶ Roll for {S.names[S.current_turn]}")
+            if ai_btn:
+                roll_pressed = True
+
+        # ── GAME LOGIC
+        if roll_pressed:
+            dice = random.randint(1, 6)
+            S.last_dice = dice
+            cp = S.current_turn
+            old_pos = S.positions[cp]
+            new_pos = old_pos + dice
+            event_msg = ""
+
+            play_sound("dice")
+
+            if new_pos > 100:
+                event_msg = f"🚫 {S.names[cp]} needs {100 - old_pos} to win! No move."
+                new_pos = old_pos
+            else:
+                S.positions[cp] = new_pos
+
+                if new_pos == 100:
+                    event_msg = f"🎉 {S.names[cp]} WON THE GAME! 🏆"
+                    S.last_event = event_msg
+                    S.log.insert(0, event_msg)
+                    S.winner = cp
+                    S.board_needs_update = True
+                    play_sound("win")
+                    S.phase = "gameover"
+                    st.rerun()
+
+                elif new_pos in SNAKES:
+                    snake_tail = SNAKES[new_pos]
+                    event_msg = f"🐍 OH NO! {S.names[cp]} bitten by snake at {new_pos}! Slides to {snake_tail}!"
+                    S.positions[cp] = snake_tail
+                    play_sound("snake")
+
+                elif new_pos in LADDERS:
+                    ladder_top = LADDERS[new_pos]
+                    event_msg = f"🪜 LUCKY! {S.names[cp]} climbed ladder from {new_pos} to {ladder_top}!"
+                    S.positions[cp] = ladder_top
+                    play_sound("ladder")
+
+                else:
+                    event_msg = f"🎲 {S.names[cp]} rolled {dice} → moved to cell {new_pos}"
+                    play_sound("move")
+
+            S.last_event = event_msg
+            S.log.insert(0, f"Turn {len(S.log)+1}: {event_msg}")
+            if len(S.log) > 20:
+                S.log = S.log[:20]
+
+            # next turn
+            S.current_turn = (S.current_turn + 1) % 4
+            S.board_needs_update = True
+            st.rerun()
+
+        # ── Game log
+        st.markdown("---")
+        st.markdown("**📜 Game Log**")
+        log_html = "".join([f'<div class="log-entry">{e}</div>' for e in S.log[:8]])
+        st.markdown(f'<div style="max-height:180px;overflow-y:auto;">{log_html}</div>',
+                   unsafe_allow_html=True)
+
+        # ── Reset button
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔄 RESTART GAME"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+
+# ─────────────────────────────────────────────
+#  PHASE 4 — GAME OVER
+# ─────────────────────────────────────────────
+elif S.phase == "gameover":
+    st.markdown('<div class="pixel-title">🏆 GAME OVER! 🏆</div>', unsafe_allow_html=True)
+
+    w = S.winner
+    if w is not None and S.photos[w]:
+        _, mid, _ = st.columns([1.5, 1, 1.5])
+        with mid:
+            cropped = circular_crop(S.photos[w], 180)
+            st.image(cropped, use_container_width=False, width=180)
 
     st.markdown(f"""
-    <div style='color:#8b92b3; font-size:0.8rem; margin-top:0.3rem;'>
-    <span class='insight-pill'>Unique values: {df[col_sel].nunique()}</span>
-    <span class='insight-pill'>Top value: "{vc.index[0]}" ({top_pct:.1f}%)</span>
-    <span class='insight-pill'>Null count: {df[col_sel].isnull().sum()}</span>
+    <div class="win-banner">
+        🎉 {S.names[w] if w is not None else "Someone"} WINS! 🎉<br>
+        <span style="font-size:0.7rem;color:#b8a0ff;">Reached Cell 100!</span>
     </div>
     """, unsafe_allow_html=True)
 
-    # Cross-tab
-    if len(categorical) >= 2:
-        st.markdown('<div class="section-header">🧩 Cross-Tabulation</div>', unsafe_allow_html=True)
-        c1, c2 = st.columns(2)
-        row_col = c1.selectbox("Row variable", categorical, key="ct_row")
-        col_col = c2.selectbox("Column variable", [c for c in categorical if c != row_col], key="ct_col")
-        ct = pd.crosstab(df[row_col], df[col_col])
-        fig3 = px.imshow(ct, text_auto=True, aspect="auto",
-                         color_continuous_scale="Purples",
-                         title=f"{row_col} × {col_col} Cross-tab")
-        apply_theme(fig3)
-        fig3.update_layout(height=max(300, len(ct) * 35))
-        st.plotly_chart(fig3, use_container_width=True)
-
-
-def render_time_analysis(df):
-    _, _, datetime_cols = detect_column_types(df)
-    if not datetime_cols:
-        st.info("No datetime columns detected.")
-        return
-
-    st.markdown('<div class="section-header">🕐 Time Series Analysis</div>', unsafe_allow_html=True)
-
-    dt_col = st.selectbox("Select datetime column", datetime_cols, key="dt_col")
-    df2 = df.copy()
-    df2[dt_col] = pd.to_datetime(df2[dt_col], errors="coerce")
-    df2 = df2.dropna(subset=[dt_col])
-
-    numeric, _, _ = detect_column_types(df2)
-    val_col = st.selectbox("Value column (or 'count')", ["— count records —"] + numeric, key="dt_val")
-
-    freq = st.radio("Aggregation", ["D", "W", "ME", "QE"], horizontal=True,
-                    format_func=lambda x: {"D":"Daily","W":"Weekly","ME":"Monthly","QE":"Quarterly"}[x])
-
-    df2 = df2.set_index(dt_col)
-    if val_col == "— count records —":
-        ts = df2.resample(freq).size().reset_index(name="count")
-        y = "count"
-    else:
-        ts = df2[val_col].resample(freq).mean().reset_index()
-        y = val_col
-
-    fig = px.line(ts, x=dt_col, y=y, title=f"Trend: {y} over time",
-                  markers=True, color_discrete_sequence=["#6c63ff"])
-    apply_theme(fig)
-    fig.update_traces(line_width=2.5)
-    # Add moving average
-    if len(ts) >= 5:
-        ts["MA"] = ts[y].rolling(min(5, len(ts)//2 or 2), min_periods=1).mean()
-        fig.add_scatter(x=ts[dt_col], y=ts["MA"], mode="lines",
-                        line=dict(color="#f59e0b", dash="dash", width=2),
-                        name="Moving Avg")
-    st.plotly_chart(fig, use_container_width=True)
-
-
-def render_outliers(df):
-    numeric, _, _ = detect_column_types(df)
-    if not numeric:
-        st.info("No numeric columns for outlier detection.")
-        return
-
-    st.markdown('<div class="section-header">🚨 Outlier Detection (IQR Method)</div>', unsafe_allow_html=True)
-
-    results = []
-    for col in numeric:
-        q1, q3 = df[col].quantile(0.25), df[col].quantile(0.75)
-        iqr = q3 - q1
-        lower, upper = q1 - 1.5 * iqr, q3 + 1.5 * iqr
-        outs = ((df[col] < lower) | (df[col] > upper)).sum()
-        results.append({"Column": col, "Q1": round(q1,2), "Q3": round(q3,2),
-                         "IQR": round(iqr,2), "Lower Fence": round(lower,2),
-                         "Upper Fence": round(upper,2), "Outliers": int(outs),
-                         "Outlier %": round(outs/len(df)*100, 2)})
-
-    res_df = pd.DataFrame(results).sort_values("Outliers", ascending=False)
-    st.dataframe(res_df, use_container_width=True)
-
-    if len(numeric) >= 2:
-        col_sel = st.selectbox("Visualise outliers for", numeric, key="out_col")
-        q1, q3 = df[col_sel].quantile(0.25), df[col_sel].quantile(0.75)
-        iqr = q3 - q1
-        colors = np.where((df[col_sel] < q1 - 1.5*iqr) | (df[col_sel] > q3 + 1.5*iqr), "#f87171", "#6c63ff")
-        fig = go.Figure(go.Scatter(
-            x=df.index, y=df[col_sel],
-            mode="markers",
-            marker=dict(color=colors, size=5, opacity=0.7),
-        ))
-        apply_theme(fig, f"Outlier Scatter — {col_sel}")
-        fig.update_layout(height=300)
-        st.plotly_chart(fig, use_container_width=True)
-
-
-def render_advanced(df):
-    numeric, categorical, _ = detect_column_types(df)
-    st.markdown('<div class="section-header">🧠 Advanced Analytics</div>', unsafe_allow_html=True)
-
-    tab1, tab2, tab3 = st.tabs(["📊 Group Aggregation", "📦 Distribution Compare", "🎯 Top N Analysis"])
-
-    with tab1:
-        if categorical and numeric:
-            gc = st.selectbox("Group by", categorical, key="ga_grp")
-            vc = st.multiselect("Aggregate columns", numeric, default=numeric[:min(3,len(numeric))], key="ga_val")
-            agg_fn = st.radio("Function", ["mean","sum","count","median","std"], horizontal=True, key="ga_fn")
-            if vc:
-                grp = df.groupby(gc)[vc].agg(agg_fn).reset_index().round(2)
-                st.dataframe(grp, use_container_width=True)
-                fig = px.bar(grp, x=gc, y=vc, barmode="group",
-                             title=f"{agg_fn.title()} of {', '.join(vc)} by {gc}")
-                apply_theme(fig)
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Need at least 1 categorical and 1 numeric column.")
-
-    with tab2:
-        if len(numeric) >= 2:
-            cols = st.multiselect("Columns to compare", numeric, default=numeric[:min(4,len(numeric))], key="dc_cols")
-            if cols:
-                fig = go.Figure()
-                colors = ["#6c63ff","#f59e0b","#34d399","#f87171","#38bdf8","#fb923c"]
-                for i, c in enumerate(cols):
-                    fig.add_trace(go.Violin(y=df[c].dropna(), name=c,
-                                            box_visible=True, meanline_visible=True,
-                                            fillcolor=colors[i % len(colors)],
-                                            opacity=0.7, line_color="white"))
-                apply_theme(fig, "Violin Distribution Comparison")
-                fig.update_layout(height=420, showlegend=False)
-                st.plotly_chart(fig, use_container_width=True)
-
-    with tab3:
-        if categorical:
-            tc = st.selectbox("Column", categorical, key="tn_col")
-            n = st.slider("Top N", 5, 30, 10, key="tn_n")
-            vc2 = df[tc].value_counts().head(n)
-            fig = px.bar(x=vc2.values, y=vc2.index.astype(str),
-                         orientation="h", title=f"Top {n} — {tc}",
-                         color=vc2.values, color_continuous_scale="Purples",
-                         text=vc2.values)
-            apply_theme(fig)
-            fig.update_layout(showlegend=False, coloraxis_showscale=False,
-                               yaxis=dict(autorange="reversed"))
-            fig.update_traces(textposition="outside")
-            st.plotly_chart(fig, use_container_width=True)
-
-
-def render_export(df):
-    st.markdown('<div class="section-header">💾 Export Processed Data</div>', unsafe_allow_html=True)
-
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-        csv = df.to_csv(index=False).encode()
-        st.download_button("⬇️ Download CSV", csv, "processed_data.csv", "text/csv", use_container_width=True)
-
-    with c2:
-        buf = io.BytesIO()
-        df.to_excel(buf, index=False, engine="openpyxl")
-        st.download_button("⬇️ Download Excel", buf.getvalue(),
-                           "processed_data.xlsx",
-                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                           use_container_width=True)
-
-    with c3:
-        summary_buf = io.StringIO()
-        numeric, _, _ = detect_column_types(df)
-        summary = df[numeric].describe().T if numeric else pd.DataFrame()
-        summary.to_csv(summary_buf)
-        st.download_button("⬇️ Download Summary Stats", summary_buf.getvalue().encode(),
-                           "summary_stats.csv", "text/csv", use_container_width=True)
-
-    st.caption("All exports use your (filtered) dataset as currently loaded.")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  SIDEBAR
-# ══════════════════════════════════════════════════════════════════════════════
-
-with st.sidebar:
-    st.markdown("""
-    <div style='text-align:center; padding: 0.5rem 0 1rem 0;'>
-        <div style='font-size:2rem;'>📊</div>
-        <div style='font-size:1.1rem; font-weight:700; color:#e8eaf6;'>CSV Analytics</div>
-        <div style='font-size:0.75rem; color:#6c7293;'>Advanced Data Explorer</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    uploaded = st.file_uploader("Upload CSV file", type=["csv", "tsv"],
-                                 accept_multiple_files=False)
-
-    if uploaded:
-        sep = "\t" if uploaded.name.endswith(".tsv") else ","
-        try:
-            df_raw = pd.read_csv(uploaded, sep=sep)
-            st.success(f"✅ {uploaded.name}")
-            st.caption(f"{df_raw.shape[0]:,} rows × {df_raw.shape[1]} cols")
-
-            st.markdown("---")
-            st.markdown("**🔧 Filters**")
-
-            numeric, categorical, _ = detect_column_types(df_raw)
-
-            df_filtered = df_raw.copy()
-            for cat_col in categorical[:4]:  # up to 4 filter pills
-                unique_vals = df_raw[cat_col].dropna().unique().tolist()
-                if 2 <= len(unique_vals) <= 30:
-                    sel = st.multiselect(cat_col, unique_vals, default=unique_vals, key=f"flt_{cat_col}")
-                    df_filtered = df_filtered[df_filtered[cat_col].isin(sel)]
-
-            for num_col in numeric[:2]:
-                mn, mx = float(df_raw[num_col].min()), float(df_raw[num_col].max())
-                if mn < mx:
-                    rng = st.slider(num_col, mn, mx, (mn, mx), key=f"flt_{num_col}")
-                    df_filtered = df_filtered[df_filtered[num_col].between(rng[0], rng[1])]
-
-            st.caption(f"Filtered: {len(df_filtered):,} rows")
-
-        except Exception as e:
-            st.error(f"Error reading file: {e}")
-            df_raw = None
-            df_filtered = None
-    else:
-        df_raw = None
-        df_filtered = None
+    # final board
+    if S.board_img:
+        _, mid, _ = st.columns([0.5, 3, 0.5])
+        with mid:
+            st.image(S.board_img, use_container_width=True)
 
     st.markdown("---")
-    st.markdown("""
-    <div style='font-size:0.7rem; color:#4a4f6a; text-align:center; padding-top:0.5rem;'>
-        Supports CSV · TSV<br>All analysis runs locally
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("**📜 Final Game Log**")
+    for entry in S.log[:15]:
+        st.markdown(f'<div class="log-entry">{entry}</div>', unsafe_allow_html=True)
 
+    st.markdown("<br>", unsafe_allow_html=True)
+    _, mid, _ = st.columns([1, 2, 1])
+    with mid:
+        if st.button("🎮 PLAY AGAIN WITH SAME PLAYERS"):
+            S.positions = [0]*4
+            S.current_turn = S.chosen_player
+            S.log = [f"🔄 New game! {S.names[S.chosen_player]} goes first!"]
+            S.last_dice = None
+            S.last_event = None
+            S.winner = None
+            S.board_needs_update = True
+            S.board_img = None
+            S.phase = "play"
+            st.rerun()
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  MAIN CONTENT
-# ══════════════════════════════════════════════════════════════════════════════
-
-if df_filtered is None:
-    st.markdown("""
-    <div class='upload-hero'>
-        <div class='upload-title'>📂 Drop your CSV here</div>
-        <div class='upload-sub'>Use the sidebar to upload a CSV or TSV file.<br>
-        Get instant charts, stats, correlations, outliers & more.</div>
-        <br>
-        <div style='display:flex; gap:1rem; justify-content:center; flex-wrap:wrap;'>
-            <span class='insight-pill'>📈 Distributions</span>
-            <span class='insight-pill'>🔗 Correlations</span>
-            <span class='insight-pill'>🕐 Time Series</span>
-            <span class='insight-pill'>🚨 Outliers</span>
-            <span class='insight-pill'>🧩 Cross-tabs</span>
-            <span class='insight-pill'>🎯 Group Agg</span>
-            <span class='insight-pill'>💾 Export</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-else:
-    df = df_filtered
-
-    tab_ov, tab_num, tab_cat, tab_time, tab_out, tab_adv, tab_exp = st.tabs([
-        "📋 Overview",
-        "📈 Numeric",
-        "🏷️ Categorical",
-        "🕐 Time Series",
-        "🚨 Outliers",
-        "🧠 Advanced",
-        "💾 Export"
-    ])
-
-    with tab_ov:   render_overview(df)
-    with tab_num:  render_numeric_analysis(df)
-    with tab_cat:  render_categorical_analysis(df)
-    with tab_time: render_time_analysis(df)
-    with tab_out:  render_outliers(df)
-    with tab_adv:  render_advanced(df)
-    with tab_exp:  render_export(df)
+        if st.button("🔄 FULL RESTART"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
